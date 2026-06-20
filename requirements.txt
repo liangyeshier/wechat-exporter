@@ -1,0 +1,45 @@
+# WeChat Exporter — macOS (Apple Silicon or Intel)
+# Recommended interpreter: a Python 3.11 or 3.12 venv (NOT the macOS system 3.9).
+#   brew install python@3.12
+#   python3.12 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# ---- Core (always required) -------------------------------------------------
+sqlcipher3>=0.6.2          # Decrypt WeChat SQLCipher DBs. >=0.6.2 ships self-contained
+                           # macOS arm64/x86_64/universal2 wheels (SQLCipher 4 + OpenSSL
+                           # bundled — no brew/build needed).
+                           # Fallback if no wheel for your interpreter:
+                           #     pip install sqlcipher3-wheels>=0.5.7   (drop-in, same import name)
+zstandard>=0.22            # WeChat 4.x stores message_content zstd-compressed (WCDB_CT==4).
+rich>=13                   # Terminal UI / progress bars.
+jinja2>=3                  # HTML export templating.
+click>=8                   # CLI.
+flask>=3                   # 图形界面 app.py（命令行 main.py 不需要它）。
+
+# ---- CSV export -------------------------------------------------------------
+pandas>=2.2,<3             # pandas>=3 requires Python>=3.11. Pinned <3 so the tool also
+                           # runs on a 3.9/3.10 interpreter. On 3.11+ you may relax this.
+
+# ---- Voice transcription (optional feature; enable with --voice) ------------
+# Install these only if you want语音转文字. They are imported lazily.
+silk-python>=0.2.8         # Decode WeChat SILK voice. Ships macOS arm64 wheels.
+                           # Do NOT use `pilk` on macOS — it only publishes Windows wheels.
+numpy>=1.24
+soxr>=0.3                  # High-quality 24000->16000 Hz resample for Whisper.
+faster-whisper>=1.0        # Local STT. No PyTorch, bundles ffmpeg via PyAV, int8 CPU is
+                           # ~2-4x faster than openai-whisper on Apple Silicon. Default engine.
+# openai-whisper>=20231117 # OPTIONAL alternative engine. Pulls PyTorch (~3 GB) and needs a
+                           #   system ffmpeg (`brew install ffmpeg`). Enable with
+                           #   --whisper-engine openai if you prefer it.
+
+# ---- Real image export (optional; enables actual photos in the HTML) --------
+pycryptodome>=3.20         # AES-128 for WeChat image .dat (V1/V2) decryption.
+av>=11                     # Decode WeChat 4.x `wxgf` (HEVC) images. Bundles ffmpeg via
+                           # PyAV — no system ffmpeg / brew needed.
+pillow>=10                 # Re-encode decoded image frames to JPEG.
+
+# ---- Key extraction backends (optional) -------------------------------------
+# The default `memscan` backend is pure-Python (ctypes + mach_vm) and needs NOTHING here.
+# Install frida only if you want the `frida` backend (hooks sqlite3_key in the live process).
+frida>=17,<18
+frida-tools>=14,<15

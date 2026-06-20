@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ contact.display_name }} · 聊天记录</title>
+<style>
+  :root {
+    --bg: #ededed;
+    --bar: #f7f7f7;
+    --bubble-in: #ffffff;
+    --bubble-out: #95ec69;
+    --text: #181818;
+    --muted: #9a9a9a;
+    --pill: #dadbdd;
+    --accent: #07c160;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- sticky top bar ---- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--bar);
+    border-bottom: 1px solid #e0e0e0;
+    padding: 10px 14px;
+    backdrop-filter: saturate(1.2);
+  }
+  .topbar-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+  .topbar .title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .topbar .title { font-size: 17px; font-weight: 600; }
+  .topbar .count { font-size: 12px; color: var(--muted); }
+  .search {
+    width: 100%; border: 1px solid #e3e3e3; border-radius: 8px;
+    padding: 8px 12px; font-size: 14px; background: #fff; outline: none;
+  }
+  .search:focus { border-color: var(--accent); }
+
+  /* ---- conversation column ---- */
+  .chat { max-width: 720px; margin: 0 auto; padding: 14px 14px 60px; }
+
+  /* ---- date separators ---- */
+  .date-sep { text-align: center; margin: 18px 0 14px; }
+  .date-sep span {
+    display: inline-block; background: var(--pill); color: #7a7a7a;
+    font-size: 12px; padding: 3px 10px; border-radius: 4px;
+  }
+
+  /* ---- system / recall notices ---- */
+  .notice { text-align: center; margin: 12px 0; }
+  .notice span {
+    display: inline-block; background: rgba(0,0,0,0.05); color: #8a8a8a;
+    font-size: 12.5px; padding: 4px 12px; border-radius: 4px; max-width: 88%;
+  }
+
+  /* ---- message rows ---- */
+  .msg { display: flex; align-items: flex-start; margin: 14px 0; gap: 10px; }
+  .msg.out { flex-direction: row-reverse; }
+
+  .avatar {
+    flex: 0 0 auto; width: 40px; height: 40px; border-radius: 6px;
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 600; user-select: none; overflow: hidden;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+  .col { display: flex; flex-direction: column; max-width: 78%; min-width: 0; }
+  .msg.out .col { align-items: flex-end; }
+  .sender { font-size: 12px; color: var(--muted); margin: 0 2px 4px; }
+
+  /* ---- bubbles ---- */
+  .bubble {
+    position: relative; background: var(--bubble-in);
+    padding: 9px 12px; border-radius: 6px;
+    word-wrap: break-word; overflow-wrap: anywhere; white-space: pre-wrap;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.05); font-size: 15px;
+  }
+  .msg.out .bubble { background: var(--bubble-out); }
+  .bubble::before {
+    content: ""; position: absolute; top: 13px; width: 0; height: 0;
+    border: 6px solid transparent;
+  }
+  .msg.in  .bubble::before { left: -11px;  border-right-color: var(--bubble-in); }
+  .msg.out .bubble::before { right: -11px; border-left-color: var(--bubble-out); }
+  .bubble.plain { background: transparent !important; box-shadow: none; padding: 0; }
+  .bubble.plain::before { display: none; }
+
+  .time { font-size: 11px; color: var(--muted); margin: 4px 2px 0; }
+
+  /* ---- voice bubble (WeChat style) ---- */
+  .voice-row { display: inline-flex; align-items: center; gap: 8px; }
+  .msg.out .voice-row { flex-direction: row-reverse; }
+  .voice-ico { font-size: 17px; transform: translateY(1px); }
+  .voice-dur { color: #333; font-variant-numeric: tabular-nums; }
+  .voice-cap {
+    margin-top: 6px; padding: 7px 10px; background: #fff; border-radius: 6px;
+    font-size: 13.5px; color: #333; box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+    max-width: 320px;
+  }
+  .voice-cap .tag { color: var(--accent); font-size: 11px; margin-right: 6px; }
+  .voice-audio { display: block; margin-top: 6px; height: 32px; max-width: 240px; }
+  .msg.out .voice-audio { margin-left: auto; }
+
+  /* ---- image / video tiles ---- */
+  .bubble.media { padding: 0; background: transparent; box-shadow: none; }
+  .bubble.media::before { display: none; }
+  .bubble.media img.thumb {
+    display: block; max-width: 220px; max-height: 300px;
+    border-radius: 6px; cursor: zoom-in;
+  }
+  .bubble.media video.vid {
+    display: block; max-width: 240px; max-height: 320px; border-radius: 6px; background: #000;
+  }
+  .tile {
+    width: 150px; height: 150px; border-radius: 8px;
+    background: linear-gradient(135deg,#e9eef3,#dfe6ec);
+    border: 1px solid #e0e0e0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #9aa6b2; gap: 6px; position: relative;
+  }
+  .tile .tile-ico { font-size: 34px; }
+  .tile .tile-label { font-size: 12px; }
+  .tile .play {
+    position: absolute; width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(0,0,0,0.45); color: #fff; display: flex;
+    align-items: center; justify-content: center; font-size: 20px;
+  }
+  .tile.hint { cursor: help; }
+
+  /* ---- generic / specific cards ---- */
+  .card {
+    display: flex; gap: 10px; align-items: flex-start;
+    min-width: 170px; max-width: 300px;
+  }
+  .card .card-icon { font-size: 24px; line-height: 1.1; flex: 0 0 auto; }
+  .card .card-body { min-width: 0; }
+  .card .card-kind { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .card .card-title { font-size: 14.5px; color: var(--text); overflow-wrap: anywhere; }
+  .card .card-sub { font-size: 12px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+
+  /* money cards */
+  .bubble.money { color: #fff; min-width: 200px; }
+  .bubble.money::before { display: none; }
+  .bubble.transfer, .msg.out .bubble.transfer { background: #faad3f; }
+  .bubble.redpacket, .msg.out .bubble.redpacket { background: #fa5151; }
+  .money .m-row { display: flex; align-items: center; gap: 12px; }
+  .money .m-ico { font-size: 30px; line-height: 1; }
+  .money .m-main { line-height: 1.25; min-width: 0; }
+  .money .m-amt { font-size: 21px; font-weight: 700; }
+  .money .m-status { font-size: 12px; opacity: .92; }
+  .money .m-status2 { font-size: 16px; font-weight: 600; }
+  .money .m-sub { font-size: 11px; opacity: .85; border-top: 1px solid rgba(255,255,255,.35);
+                  margin-top: 8px; padding-top: 5px; }
+
+  /* quote */
+  .quote-body { }
+  .quote-ref {
+    margin-top: 6px; padding: 6px 9px; background: rgba(0,0,0,0.05);
+    border-radius: 4px; font-size: 12.5px; color: #6b6b6b;
+  }
+
+  /* ---- lightbox ---- */
+  #lightbox {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.88); align-items: center; justify-content: center; cursor: zoom-out;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 4px; }
+
+  .empty-hint { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; display: none; }
+  footer { max-width: 720px; margin: 0 auto; padding: 20px 14px 40px; text-align: center; color: var(--muted); font-size: 12px; }
+  .avatar.av-embed { background-size: cover; background-position: center; }
+</style>
+{% if avatar_styles %}
+<style>
+{% for tok, uri in avatar_styles.items() %}.av-{{ tok }}{background-image:url("{{ uri }}");background-size:cover;background-position:center;}
+{% endfor %}
+</style>
+{% endif %}
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="title-row">
+      <span class="title">{{ contact.display_name }}</span>
+      <span class="count">
+        共 {{ stats.total }} 条
+        {% if stats.start_date and stats.end_date %} · {{ stats.start_date }} ~ {{ stats.end_date }}{% endif %}
+      </span>
+    </div>
+    <input id="search" class="search" type="search" placeholder="搜索聊天记录…" autocomplete="off">
+  </div>
+</div>
+
+<div class="chat" id="chat">
+  {% for group in messages_by_date %}
+  <section class="date-group" data-date="{{ group.date }}">
+    <div class="date-sep"><span>{{ group.date }}</span></div>
+
+    {% for m in group.messages %}
+      {% if m.kind in ("system", "recall") %}
+        <div class="notice msg-item" data-search="{{ (m.display_text ~ ' ' ~ m.kind_label) | lower }}">
+          <span>{{ m.display_text or m.kind_label }}</span>
+        </div>
+      {% else %}
+        <div class="msg msg-item {{ 'out' if m.is_sender else 'in' }}"
+             data-search="{{ (m.sender_name ~ ' ' ~ m.display_text ~ ' ' ~ m.voice_text ~ ' ' ~ m.kind_label) | lower }}">
+          <div class="avatar{% if m.avatar_token %} av-{{ m.avatar_token }}{% endif %}" title="{{ m.sender_name }}"{% if not m.avatar_token %} style="background: {{ m.avatar_color }}"{% endif %}>{% if m.avatar_token %}{% elif m.avatar_img %}<img src="{{ m.avatar_img }}" alt="{{ m.sender_name }}" loading="lazy">{% else %}{{ m.avatar_text }}{% endif %}</div>
+          <div class="col">
+            {% if not m.is_sender %}<div class="sender">{{ m.sender_name }}</div>{% endif %}
+
+            {% if m.kind in ("image", "sticker") %}
+              <div class="bubble media">
+                {% if m.media_out %}
+                  <img class="thumb" src="{{ m.media_out }}" alt="{{ m.kind_label }}" loading="lazy" data-full="{{ m.media_out }}">
+                {% else %}
+                  <div class="tile hint" title="原图为微信加密文件(.dat)，需额外解出图片密钥才能显示">
+                    <div class="tile-ico">{{ '😀' if m.kind == 'sticker' else '🏞️' }}</div>
+                    <div class="tile-label">{{ m.kind_label }}</div>
+                  </div>
+                {% endif %}
+              </div>
+
+            {% elif m.kind == "video" %}
+              <div class="bubble media">
+                {% if m.video_out %}
+                  <video class="vid" controls preload="none" {% if m.media_out %}poster="{{ m.media_out }}"{% endif %} src="{{ m.video_out }}"></video>
+                {% elif m.media_out %}
+                  <div class="tile" style="background-image:url('{{ m.media_out }}');background-size:cover;background-position:center;">
+                    <div class="play">▶</div>
+                  </div>
+                {% else %}
+                  <div class="tile"><div class="tile-ico">🎬</div><div class="play">▶</div><div class="tile-label">视频</div></div>
+                {% endif %}
+              </div>
+
+            {% elif m.kind == "voice" %}
+              <div class="bubble voice" style="min-width: {{ 60 + ((m.voice_seconds or 1) * 5 if (m.voice_seconds or 0) < 40 else 200) }}px">
+                <span class="voice-row">
+                  <span class="voice-ico">🔊</span>
+                  <span class="voice-dur">{{ (m.voice_seconds ~ '″') if m.voice_seconds else '语音' }}</span>
+                </span>
+              </div>
+              {% if m.is_audio %}<audio class="voice-audio" controls preload="none" src="{{ m.media_out }}"></audio>{% endif %}
+              {% if m.voice_text %}
+                <div class="voice-cap"><span class="tag">转文字</span>{{ m.voice_text }}</div>
+              {% endif %}
+
+            {% elif m.kind == "text" %}
+              <div class="bubble">{{ m.display_text }}</div>
+
+            {% elif m.kind in ("transfer", "redpacket") %}
+              <div class="bubble money {{ m.kind }}">
+                <div class="m-row">
+                  <span class="m-ico">{{ '🧧' if m.kind == 'redpacket' else '💰' }}</span>
+                  <div class="m-main">
+                    {% if m.kind == 'transfer' and m.extra.amount %}
+                      <div class="m-amt">{{ m.extra.amount }}</div>
+                      <div class="m-status">{{ m.extra.transfer_status or '微信转账' }}{% if m.extra.memo %} · {{ m.extra.memo }}{% endif %}</div>
+                    {% elif m.kind == 'redpacket' %}
+                      <div class="m-status2">{{ m.extra.redpacket_greet or '微信红包' }}</div>
+                    {% else %}
+                      <div class="m-status2">{{ m.display_text or m.kind_label }}</div>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="m-sub">{{ '微信红包' if m.kind == 'redpacket' else '微信转账' }}</div>
+              </div>
+
+            {% elif m.kind == "quote" %}
+              <div class="bubble">{{ m.display_text }}</div>
+
+            {% else %}
+              {# file / link / location / card / miniprogram / channel / voip / app ... #}
+              <div class="bubble">
+                <div class="card">
+                  <div class="card-icon">{{ m.kind_icon }}</div>
+                  <div class="card-body">
+                    <div class="card-kind">{{ m.kind_label }}</div>
+                    <div class="card-title">{{ m.display_text or m.kind_label }}</div>
+                    {% if m.kind == "file" and m.extra.fileext %}<div class="card-sub">{{ m.extra.fileext | upper }} 文件</div>{% endif %}
+                    {% if m.kind == "link" and m.extra.url %}<div class="card-sub">{{ m.extra.url }}</div>{% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+
+            <div class="time">{{ m.time_str }}</div>
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <div class="empty-hint" id="emptyHint">没有匹配的聊天记录</div>
+</div>
+
+<footer>
+  与「{{ contact.display_name }}」的聊天记录 ·
+  {% if owner %}导出者：{{ owner.display_name }} · {% endif %}
+  {% if generated_at %}生成时间：{{ generated_at }}{% endif %}
+</footer>
+
+<div id="lightbox"><img id="lightboxImg" src="" alt=""></div>
+
+<script>
+(function () {
+  "use strict";
+  var lightbox = document.getElementById("lightbox");
+  var lightboxImg = document.getElementById("lightboxImg");
+  document.getElementById("chat").addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && t.tagName === "IMG" && t.classList.contains("thumb")) {
+      lightboxImg.src = t.getAttribute("data-full") || t.src;
+      lightbox.classList.add("open");
+    }
+  });
+  function closeLB() { lightbox.classList.remove("open"); lightboxImg.src = ""; }
+  lightbox.addEventListener("click", closeLB);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && lightbox.classList.contains("open")) closeLB();
+  });
+
+  var search = document.getElementById("search");
+  var groups = Array.prototype.slice.call(document.querySelectorAll(".date-group"));
+  var emptyHint = document.getElementById("emptyHint");
+  function applyFilter() {
+    var q = (search.value || "").trim().toLowerCase();
+    var anyVisible = false;
+    groups.forEach(function (group) {
+      var items = group.querySelectorAll(".msg-item");
+      var groupVisible = false;
+      Array.prototype.forEach.call(items, function (item) {
+        var hay = item.getAttribute("data-search") || "";
+        var show = q === "" || hay.indexOf(q) !== -1;
+        item.style.display = show ? "" : "none";
+        if (show) groupVisible = true;
+      });
+      group.style.display = groupVisible ? "" : "none";
+      if (groupVisible) anyVisible = true;
+    });
+    emptyHint.style.display = anyVisible ? "none" : "block";
+  }
+  search.addEventListener("input", applyFilter);
+})();
+</script>
+
+</body>
+</html>
