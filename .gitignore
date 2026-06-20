@@ -18,3 +18,6 @@ venv/
 *.decrypted.db
 微信导出_*
 keys.json
+
+# 原始未打码截图（含真实 wxid），仅本地保留，勿提交
+1.png

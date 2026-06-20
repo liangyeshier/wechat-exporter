@@ -10,6 +10,12 @@
 <img alt="WeChat" src="https://img.shields.io/badge/WeChat-v3.x%20%26%20v4.0%2B-07C160">
 </p>
 
+<p align="center">
+  <img alt="图形界面" src="docs/screenshot.png" width="860">
+  <br>
+  <sub>图形界面：选账号 → 挑联系人 → 按时间范围 →（可 ✕ 删除）→ 勾选格式 → 导出（图中昵称已打码）</sub>
+</p>
+
 ---
 
 ## ✨ 为什么用它
