@@ -122,8 +122,6 @@
   }
   .msg.in .bubble::before { left: -4px; }
   .msg.out .bubble::before { right: -4px; }
-  .message-meta { margin-top: 3px; color: #aaa; font-size: 9.5px; line-height: 14px; font-variant-numeric: tabular-nums; }
-
   .bubble.media { min-height: 0; padding: 0; background: transparent; }
   .bubble.media::before, .bubble.money::before, .bubble.sticker::before { display: none; }
   .thumb { display: block; width: auto; height: auto; max-width: min(260px, 54vw); max-height: 360px; border-radius: 4px; cursor: zoom-in; }
@@ -253,7 +251,7 @@
     <div class="date-sep"><span>{{ group.date }}</span></div>
     {% for m in group.messages %}
       {% if m.kind in ("system", "recall") %}
-        <div class="notice msg-item" data-search="{{ (m.display_text ~ ' ' ~ m.kind_label ~ ' ' ~ m.full_time_str ~ ' ' ~ m.sequence) | lower }}"><span>{{ m.display_text or m.kind_label }} · <time datetime="{{ m.iso_time_str }}">{{ m.full_time_str }}</time> · #{{ '%06d'|format(m.sequence) }}</span></div>
+        <div class="notice msg-item" data-sequence="{{ m.sequence }}" data-search="{{ (m.display_text ~ ' ' ~ m.kind_label ~ ' ' ~ m.full_time_str ~ ' ' ~ m.sequence) | lower }}"><span>{{ m.display_text or m.kind_label }} · <time datetime="{{ m.iso_time_str }}">{{ m.full_time_str }}</time></span></div>
       {% else %}
         {% if m.show_time_marker %}<div class="time-sep"><span>{{ m.time_str[:5] }}</span></div>{% endif %}
         <article class="msg msg-item {{ 'out' if m.is_sender else 'in' }}" data-sequence="{{ m.sequence }}" data-search="{{ (m.sender_name ~ ' ' ~ m.display_text ~ ' ' ~ m.voice_text ~ ' ' ~ m.kind_label ~ ' ' ~ m.sequence) | lower }}">
@@ -288,7 +286,6 @@
             {% else %}
               <div class="bubble card-bubble"><div class="card-main"><div class="card-copy"><div class="card-title">{{ m.extra.title or m.extra.poiname or m.extra.nickname or m.display_text or m.kind_label }}</div>{% if m.extra.desc or m.extra.label or m.extra.url %}<div class="card-desc">{{ m.extra.desc or m.extra.label or m.extra.url }}</div>{% endif %}</div><div class="card-mark">{{ (m.extra.fileext or m.kind_label)[:6] }}</div></div><div class="card-foot">{{ m.kind_label }}</div></div>
             {% endif %}
-            <div class="message-meta">消息 #{{ '%06d'|format(m.sequence) }}</div>
           </div>
         </article>
       {% endif %}

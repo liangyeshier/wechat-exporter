@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.2.1 - 2026-08-13
+
+- Hide internal message sequence numbers from HTML, PNG, and PDF reading views,
+  while retaining them in TXT/CSV/JSON archives and the SHA-256 message chain.
+
 ## 0.2.0 - 2026-08-13
 
 - Replace the partially blurred real-data screenshot with a fully synthetic demo screenshot.

@@ -682,7 +682,7 @@ def _render_bubble(pg: _Pager, msg: models.Message, bundle: models.ExportBundle,
 
 
 def _draw_message(pg: _Pager, msg: models.Message,
-                  bundle: models.ExportBundle, sequence: int) -> None:
+                  bundle: models.ExportBundle) -> None:
     lay = pg.lay
     draw = pg.draw
     is_out = bool(msg.is_sender)
@@ -729,7 +729,7 @@ def _draw_message(pg: _Pager, msg: models.Message,
     _render_bubble(pg, msg, bundle, plan, bx, by, inner_w, inner_h, is_out)
 
     # timestamp under the bubble, aligned to the bubble's outer edge
-    ts = "#{0:06d} · {1}".format(sequence, msg.full_time_str)
+    ts = msg.full_time_str
     tw, _ = _text_size(draw, ts, lay.f_small)
     ty = by + bub_h + 1
     if is_out:
@@ -768,14 +768,13 @@ def render_pages(bundle: models.ExportBundle, dpi: int = 150,
                 last_date = dk
             if msg.kind in ("system", "recall"):
                 _draw_centered_line(
-                    pg, "{0}  ·  {1}  ·  #{2:06d}".format(
+                    pg, "{0}  ·  {1}".format(
                         msg.display_text or msg.kind_label,
                         msg.full_time_str,
-                        sequence,
                     )
                 )
             else:
-                _draw_message(pg, msg, bundle, sequence)
+                _draw_message(pg, msg, bundle)
         except Exception:
             # One bad message must never abort the whole render.
             try:

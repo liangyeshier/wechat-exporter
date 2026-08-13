@@ -149,9 +149,11 @@ def main() -> None:
         for value in (
             "项目资料群（演示）", "产品归档讨论组（演示）", "demo_archive_group",
             "design_archive@chatroom", "沈知夏（演示）", "demo_owner",
-            "wxid_demo_owner", "#000001", "#000110",
+            "wxid_demo_owner",
         ):
             assert value in html, value
+        assert "#000001" not in html
+        assert "#000110" not in html
         assert "第 1 页" not in html, "HTML is continuous, not paginated"
 
         txt = open(txt_path, encoding="utf-8").read()
