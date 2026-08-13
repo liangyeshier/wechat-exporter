@@ -6,7 +6,7 @@ Everything is drawn with Pillow (PIL) onto white A4 portrait canvases.
 
 Public API
 ----------
-- :func:`export_a4_images` -> writes ``<base_name>_p01.png`` ... and returns paths.
+- :func:`export_a4_images` -> writes page-counted PNG names and returns paths.
 - :func:`export_pdf`        -> writes one multi-page A4 PDF and returns its path.
 
 Both delegate to :func:`render_pages`, which returns the list of ``PIL.Image``
@@ -24,6 +24,7 @@ from typing import List, Optional, Tuple
 from PIL import Image, ImageDraw, ImageFont
 
 from core import models
+from export import archive_manifest
 
 
 # --------------------------------------------------------------------------- #
@@ -56,7 +57,7 @@ _DENSITY = {
 
 # Colors
 _WHITE = (255, 255, 255)
-_PAGE_BG = (255, 255, 255)
+_PAGE_BG = (237, 237, 237)
 _BUBBLE_IN = (255, 255, 255)
 _BUBBLE_IN_BORDER = (224, 224, 224)
 _BUBBLE_OUT = (149, 236, 105)        # #95ec69 WeChat outgoing green
@@ -385,6 +386,8 @@ class _Layout:
         # cache line heights
         self._bh = None
         self._sh = None
+        scratch = ImageDraw.Draw(Image.new("RGB", (2, 2), _PAGE_BG))
+        self.footer_h = max(30, self.small_lh(scratch) * 2)
 
     def body_lh(self, draw) -> int:
         if self._bh is None:
@@ -428,7 +431,7 @@ class _Pager:
 
     @property
     def bottom(self) -> int:
-        return self.lay.page_h - self.lay.margin
+        return self.lay.page_h - self.lay.margin - self.lay.footer_h
 
     def remaining(self) -> int:
         return self.bottom - self.y
@@ -453,16 +456,26 @@ def _draw_header(pg: _Pager, bundle: models.ExportBundle) -> None:
     _, th = _text_size(draw, title, lay.f_title)
     pg.y += int(th * 1.3)
 
-    n = len(bundle.messages)
-    first = bundle.messages[0].date_key if bundle.messages else ""
-    last = bundle.messages[-1].date_key if bundle.messages else ""
-    rng = ""
-    if first and last:
-        rng = first if first == last else f"{first} ~ {last}"
-    sub = f"共 {n} 条消息" + (f"  ·  {rng}" if rng else "")
-    draw.text((lay.margin, pg.y), sub, font=lay.f_small, fill=_TEXT_MUTED)
-    _, sh = _text_size(draw, sub, lay.f_small)
-    pg.y += int(sh * 1.6)
+    start, end = archive_manifest.date_range(bundle)
+    archive = archive_manifest.archive_metadata(bundle)
+    detail = [
+        "会话名称: " + (bundle.contact.display_name or "-"),
+        "会话微信号: " + (bundle.contact.alias or "-"),
+        "会话内部标识: " + (bundle.contact.username or "-"),
+        "导出账号: " + (bundle.owner.display_name or "-"),
+        "账号微信号: " + (bundle.owner.alias or "-"),
+        "账号内部标识: " + (bundle.owner.username or "-"),
+        "消息范围: {0} ~ {1}  ·  共 {2} 条".format(start or "-", end or "-", len(bundle.messages)),
+        "生成时间: {0}  ·  归档编号: {1}".format(
+            bundle.generated_at or "-", archive["archive_id_short"]
+        ),
+    ]
+    max_w = lay.content_w
+    for text in detail:
+        for line in _wrap_text(draw, text, lay.f_small, max_w):
+            draw.text((lay.margin, pg.y), line, font=lay.f_small, fill=_TEXT_MUTED)
+            pg.y += lay.small_lh(draw)
+    pg.y += lay.msg_gap
 
     # thin separator rule
     draw.line([(lay.margin, pg.y), (lay.page_w - lay.margin, pg.y)],
@@ -667,7 +680,7 @@ def _render_bubble(pg: _Pager, msg: models.Message, bundle: models.ExportBundle,
 
 
 def _draw_message(pg: _Pager, msg: models.Message,
-                  bundle: models.ExportBundle) -> None:
+                  bundle: models.ExportBundle, sequence: int) -> None:
     lay = pg.lay
     draw = pg.draw
     is_out = bool(msg.is_sender)
@@ -713,7 +726,7 @@ def _draw_message(pg: _Pager, msg: models.Message,
     _render_bubble(pg, msg, bundle, plan, bx, by, inner_w, inner_h, is_out)
 
     # timestamp under the bubble, aligned to the bubble's outer edge
-    ts = msg.time_str
+    ts = "#{0:06d} · {1}".format(sequence, msg.time_str)
     tw, _ = _text_size(draw, ts, lay.f_small)
     ty = by + bub_h + 1
     if is_out:
@@ -744,16 +757,20 @@ def render_pages(bundle: models.ExportBundle, dpi: int = 150,
     _draw_header(pg, bundle)
 
     last_date: Optional[str] = None
-    for msg in bundle.messages:
+    for sequence, msg in enumerate(bundle.messages, 1):
         try:
             dk = msg.date_key
             if dk != last_date:
                 _draw_date_pill(pg, dk)
                 last_date = dk
             if msg.kind in ("system", "recall"):
-                _draw_centered_line(pg, msg.display_text or msg.kind_label)
+                _draw_centered_line(
+                    pg, "{0}  ·  #{1:06d}".format(
+                        msg.display_text or msg.kind_label, sequence
+                    )
+                )
             else:
-                _draw_message(pg, msg, bundle)
+                _draw_message(pg, msg, bundle, sequence)
         except Exception:
             # One bad message must never abort the whole render.
             try:
@@ -761,7 +778,23 @@ def render_pages(bundle: models.ExportBundle, dpi: int = 150,
             except Exception:
                 pass
 
-    return pg.finish()
+    pages = pg.finish()
+    archive_short = archive_manifest.archive_metadata(bundle)["archive_id_short"]
+    total = len(pages)
+    for number, page in enumerate(pages, 1):
+        draw = ImageDraw.Draw(page)
+        y = lay.page_h - lay.margin - lay.small_lh(draw)
+        draw.line(
+            [(lay.margin, y - lay.msg_gap), (lay.page_w - lay.margin, y - lay.msg_gap)],
+            fill=_BUBBLE_IN_BORDER, width=1,
+        )
+        left = "微信聊天记录导出 · 归档 " + archive_short
+        right = "第 {0} 页 / 共 {1} 页".format(number, total)
+        draw.text((lay.margin, y), left, font=lay.f_small, fill=_TEXT_MUTED)
+        rw, _ = _text_size(draw, right, lay.f_small)
+        draw.text((lay.page_w - lay.margin - rw, y), right,
+                  font=lay.f_small, fill=_TEXT_MUTED)
+    return pages
 
 
 # --------------------------------------------------------------------------- #
@@ -769,7 +802,7 @@ def render_pages(bundle: models.ExportBundle, dpi: int = 150,
 # --------------------------------------------------------------------------- #
 def export_a4_images(bundle: models.ExportBundle, out_dir: str, base_name: str,
                      dpi: int = 150, density: str = "normal") -> List[str]:
-    """Render ``bundle`` to ``<base_name>_pNN.png`` files in ``out_dir``.
+    """Render to ``<base_name>_第NN页_共NN页.png`` files in page order.
 
     Returns the absolute paths of the written PNGs, in page order.
     """
@@ -780,7 +813,9 @@ def export_a4_images(bundle: models.ExportBundle, out_dir: str, base_name: str,
     paths: List[str] = []
     width = max(2, len(str(len(pages))))
     for i, page in enumerate(pages, 1):
-        fn = "{0}_p{1:0{2}d}.png".format(base_name, i, width)
+        fn = "{0}_第{1:0{3}d}页_共{2:0{3}d}页.png".format(
+            base_name, i, len(pages), width
+        )
         path = os.path.join(out_dir, fn)
         try:
             page.save(path, "PNG", dpi=(dpi, dpi))

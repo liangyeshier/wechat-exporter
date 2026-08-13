@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from core import models
 from core.app_paths import resource_path
+from export import archive_manifest
 
 
 # Template directory lives next to the package root (../templates).
@@ -209,6 +210,8 @@ def _build_message_dict(
     seen: Dict[str, str],
     embed: bool,
     avatar_styles: Dict[str, str],
+    sequence: int,
+    show_time_marker: bool,
 ) -> Dict[str, Any]:
     """Flatten one :class:`Message` into the dict the template consumes."""
     media_rel = _media_ref(msg.media_src, assets_dir, assets_name, seen, embed)
@@ -232,12 +235,15 @@ def _build_message_dict(
     sender = bundle.sender_name(msg)
     return {
         "sender_name": sender,
+        "sequence": sequence,
         "avatar_text": (sender[:1].upper() if sender else "?"),
         "avatar_color": _avatar_color(sender),
         "avatar_img": avatar_img,
         "avatar_token": avatar_token,
         "is_sender": bool(msg.is_sender),
         "time_str": msg.time_str,
+        "timestamp": int(msg.timestamp),
+        "show_time_marker": show_time_marker,
         "date_key": msg.date_key,
         "kind": msg.kind,
         "kind_label": msg.kind_label,
@@ -303,11 +309,19 @@ def export_html(bundle: models.ExportBundle, out_path: str,
 
     seen: Dict[str, str] = {}
     avatar_styles: Dict[str, str] = {}
-    rows = [
-        _build_message_dict(bundle, msg, assets_dir, assets_name, seen,
-                            embed_media, avatar_styles)
-        for msg in bundle.messages
-    ]
+    rows = []
+    previous_timestamp = None
+    for sequence, msg in enumerate(bundle.messages, 1):
+        show_time_marker = (
+            previous_timestamp is None
+            or msg.date_key != bundle.messages[sequence - 2].date_key
+            or int(msg.timestamp) - int(previous_timestamp) >= 300
+        )
+        rows.append(_build_message_dict(
+            bundle, msg, assets_dir, assets_name, seen,
+            embed_media, avatar_styles, sequence, show_time_marker,
+        ))
+        previous_timestamp = int(msg.timestamp)
     messages_by_date = _group_by_date(rows)
     stats = _build_stats(bundle, rows)
 
@@ -325,6 +339,9 @@ def export_html(bundle: models.ExportBundle, out_path: str,
         stats=stats,
         generated_at=bundle.generated_at or "",
         avatar_styles=avatar_styles,
+        archive=archive_manifest.archive_metadata(bundle),
+        contact_identity=archive_manifest.contact_identity(bundle.contact),
+        owner_identity=archive_manifest.contact_identity(bundle.owner),
     )
 
     with open(out_path, "w", encoding="utf-8") as fh:

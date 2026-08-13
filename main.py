@@ -378,8 +378,9 @@ def stage_select_contact(decrypted: Dict[str, str], layout: Layout,
 
 
 def stage_export(bundle: ExportBundle, fmt: str, out_dir: str,
-                 a4_density: str = "compact", embed_media: bool = False) -> List[str]:
-    from export import html_exporter, csv_exporter, txt_exporter
+                 a4_density: str = "compact", embed_media: bool = False,
+                 write_manifest: bool = True) -> List[str]:
+    from export import archive_manifest, html_exporter, csv_exporter, txt_exporter
 
     # Expand ~ against the REAL home (sudo-safe), not /var/root.
     if out_dir.startswith("~"):
@@ -414,6 +415,10 @@ def stage_export(bundle: ExportBundle, fmt: str, out_dir: str,
                 targets += image_exporter.export_a4_images(bundle, out_dir, base, density=a4_density)
             except ImportError:
                 _warn("A4 图片导出需要 pillow：pip install pillow")
+    if targets and write_manifest:
+        targets += archive_manifest.write_archive_manifest(
+            bundle, targets, out_dir, base
+        )
     return targets
 
 
@@ -545,8 +550,11 @@ def main(detect, extract_key, account, manual_key, key_method, contact_kw, start
             p.update(t, completed=i)
 
     # ---- build the bundle, then resolve REAL media (avatars + voice + images) ---
-    owner = Contact(username=owner_username or "me", nickname="我")
-    members = db_reader.read_contacts(decrypted, layout) if contact.is_group else {}
+    all_contacts = db_reader.read_contacts(decrypted, layout)
+    owner = all_contacts.get(owner_username) if owner_username else None
+    if owner is None:
+        owner = Contact(username=owner_username or layout.account_id or "me", nickname="我")
+    members = all_contacts if contact.is_group else {}
     bundle = ExportBundle(
         contact=contact, owner=owner, messages=messages, layout=layout,
         members=members, start_date=start or None, end_date=end or None,

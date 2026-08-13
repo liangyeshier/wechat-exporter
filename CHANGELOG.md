@@ -15,3 +15,10 @@ All notable changes to this project are documented here.
 
 - Replace the partially blurred real-data screenshot with a fully synthetic demo screenshot.
 - Add a comprehensive Chinese disclaimer and stricter documentation privacy guidance.
+- Rework HTML exports into a closer WeChat-style conversation layout with
+  dedicated message cards and responsive desktop/mobile rendering.
+- Preserve conversation/account names, remarks, nicknames, WeChat IDs, internal
+  IDs, sender identity, and stable 1-based message sequence numbers.
+- Add ordered A4 PNG/PDF page footers (`page X of Y`) and page-counted filenames.
+- Generate JSON/TXT archive manifests with a SHA-256 message chain and hashes for
+  every exported artifact, with explicit legal-admissibility limitations.

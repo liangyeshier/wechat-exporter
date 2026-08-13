@@ -386,7 +386,12 @@ def _load_messages(sess: Session, contact: Contact,
     for m in messages:
         message_parser.parse(m, is_group=contact.is_group)
 
-    owner = Contact(username=sess.owner_wxid or "me", nickname="我")
+    owner = sess.contacts.get(sess.owner_wxid) if sess.owner_wxid else None
+    if owner is None:
+        owner = Contact(
+            username=sess.owner_wxid or sess.layout.account_id or "me",
+            nickname="我",
+        )
     members = sess.contacts if contact.is_group else {}
     bundle = ExportBundle(
         contact=contact, owner=owner, messages=messages, layout=sess.layout,
@@ -653,10 +658,22 @@ def api_export():
                 try:
                     # HTML is exported SELF-CONTAINED (media inlined) so the single
                     # downloaded file works without a sibling assets folder.
-                    targets += cli.stage_export(bundle, fmt_map.get(f, f), out_dir,
-                                                a4_density=density, embed_media=True)
+                    targets += cli.stage_export(
+                        bundle, fmt_map.get(f, f), out_dir,
+                        a4_density=density, embed_media=True,
+                        write_manifest=False,
+                    )
                 except Exception as e:
                     errors.append("%s 导出失败: %s" % (f, e))
+            if targets:
+                from export import archive_manifest
+                rng = ""
+                if bundle.start_date or bundle.end_date:
+                    rng = "_%s-%s" % (bundle.start_date or "", bundle.end_date or "今天")
+                base = "微信导出_%s%s" % (_safe_name(bundle.contact.display_name), rng)
+                targets += archive_manifest.write_archive_manifest(
+                    bundle, targets, out_dir, base
+                )
     except Exception as e:
         traceback.print_exc()
         return _err("导出失败: %s" % e, 500)

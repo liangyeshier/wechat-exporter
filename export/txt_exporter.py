@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import List
 
 from core.models import ExportBundle, Message
+from export.archive_manifest import archive_metadata, date_range, identity_lines
 
 
 def _body(msg: Message) -> str:
@@ -31,24 +32,17 @@ def _body(msg: Message) -> str:
 def _header(bundle: ExportBundle) -> List[str]:
     """Build the leading metadata block lines."""
     messages = bundle.messages
-    title = bundle.contact.display_name
-    owner = bundle.owner.display_name or "我"
-
-    # Date range: prefer the explicit filter, else derive from the messages.
-    start = bundle.start_date
-    end = bundle.end_date
-    if not start and messages:
-        start = messages[0].date_key
-    if not end and messages:
-        end = messages[-1].date_key
-    date_range = "{0} ~ {1}".format(start or "-", end or "-")
-
-    lines = [
-        "会话: " + title,
-        "本人: " + owner,
-        "日期范围: " + date_range,
+    start, end = date_range(bundle)
+    archive = archive_metadata(bundle)
+    lines = ["微信聊天记录导出", "=" * 30]
+    lines.extend(label + ": " + value for label, value in identity_lines(bundle.contact, "会话"))
+    lines.extend(label + ": " + value for label, value in identity_lines(bundle.owner, "导出账号"))
+    lines.extend([
+        "日期范围: {0} ~ {1}".format(start or "-", end or "-"),
         "消息总数: " + str(len(messages)),
-    ]
+        "归档编号: " + archive["archive_id_sha256"],
+        "消息链末值: " + archive["message_chain_head_sha256"],
+    ])
     if bundle.generated_at:
         lines.append("导出时间: " + bundle.generated_at)
     lines.append("")
@@ -60,11 +54,13 @@ def export_txt(bundle: ExportBundle, out_path: str) -> str:
     lines: List[str] = _header(bundle)
 
     current_date = None
-    for msg in bundle.messages:
+    for sequence, msg in enumerate(bundle.messages, 1):
         if msg.date_key != current_date:
             current_date = msg.date_key
             lines.append("===== " + current_date + " =====")
-        prefix = "[{0}] {1}: ".format(msg.time_str, bundle.sender_name(msg))
+        prefix = "[#{0:06d} {1}] {2}: ".format(
+            sequence, msg.time_str, bundle.sender_name(msg)
+        )
         lines.append(prefix + _body(msg))
 
     with open(out_path, "w", encoding="utf-8") as fh:
