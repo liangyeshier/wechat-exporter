@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.2.2 - 2026-08-13
+
+- Open the packaged macOS application in an independent Cocoa/WKWebView window
+  instead of launching the user's default browser.
+- Redesign the desktop interface with restrained translucent system materials,
+  a compact tool sidebar, and a focused message preview workspace.
+- Remove the database message ID from the visual preview while preserving it in
+  machine-readable archives.
+
 ## 0.2.1 - 2026-08-13
 
 - Hide internal message sequence numbers from HTML, PNG, and PDF reading views,

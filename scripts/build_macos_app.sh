@@ -31,6 +31,7 @@ mkdir -p "$DIST"
   --add-data "$ROOT/tools:tools" \
   --collect-all sqlcipher3 \
   --collect-all av \
+  --collect-all webview \
   --exclude-module frida \
   --exclude-module frida_tools \
   --exclude-module pandas \

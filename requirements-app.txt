@@ -6,6 +6,7 @@ rich>=13
 jinja2>=3
 click>=8
 flask>=3
+pywebview>=6.2,<7
 silk-python>=0.2.8
 pycryptodome>=3.20
 av>=11

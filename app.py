@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""app.py — 微信聊天记录导出工具 · 本地图形界面 (Flask).
+"""app.py — 微信聊天记录导出工具 · 本地图形界面.
 
-在浏览器里挑选联系人、设定范围/格式并导出，无需使用终端。
+在独立应用窗口中挑选联系人、设定范围/格式并导出，无需使用终端。
 
-* 本地专用 (local-only): 仅监听 127.0.0.1，绝不对外暴露；浏览器自动打开。
+* 本地专用 (local-only): 数据服务仅监听 127.0.0.1，绝不对外暴露。
 * 只读 (read-only): 复用 main.py 的既有流水线，只读取并复制微信数据，
   从不写入或修改微信本身的任何文件。语音转写完全离线。
 * 图片密钥在本机离线推导，无需 sudo。
 
-运行:  python app.py   ->  http://127.0.0.1:8765 (端口被占用则自动换一个)
+运行:  python app.py   ->  原生窗口 (缺少 pywebview 时回退到本机浏览器)
 
 这是一个导出你自己账号本地聊天记录的个人工具。
 """
@@ -36,6 +36,11 @@ except ImportError:  # pragma: no cover
         "缺少依赖 flask。请先安装:  pip install flask\n"
         "(本工具的图形界面基于 Flask；命令行版 main.py 不需要它。)"
     )
+
+try:
+    from werkzeug.serving import make_server
+except ImportError:  # pragma: no cover
+    raise SystemExit("缺少依赖 werkzeug；它通常会随 Flask 一起安装。")
 
 # Reuse the existing pipeline — do NOT reimplement crypto / parsing here.
 from core import (constants, db_decryptor, db_reader, key_extractor,  # noqa: E402
@@ -957,93 +962,156 @@ PAGE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>微信聊天记录导出</title>
 <style>
-  :root { --green:#07c160; --bg:#ededed; --bubble:#fff; --bubble-me:#95ec69; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
-         background:#f5f5f5; color:#222; }
-  header { background:var(--green); color:#fff; padding:12px 20px; font-size:18px; font-weight:600;
-           display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  header small { font-weight:400; opacity:.85; font-size:12px; margin-left:8px; }
-  header button { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.45);
-                  padding:6px 10px; font-size:12px; white-space:nowrap; }
-  .wrap { display:flex; gap:14px; padding:14px; align-items:flex-start; flex-wrap:wrap; }
-  .panel { background:#fff; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:14px; }
-  .col-left { flex:0 0 360px; max-width:360px; }
-  .col-right { flex:1 1 480px; min-width:360px; }
-  h3 { margin:0 0 8px; font-size:14px; color:#333; }
-  .acct { font-size:13px; color:#444; background:#f0fff5; border:1px solid #d6f5e3;
-          padding:8px 10px; border-radius:8px; margin-bottom:10px; }
-  .acct .pill { display:inline-block; background:var(--green); color:#fff; border-radius:10px;
-                padding:1px 8px; font-size:11px; margin-right:6px; }
+  :root {
+    --accent:#0a9f55; --accent-strong:#087b43; --accent-soft:rgba(10,159,85,.10);
+    --window:#e9edf1; --glass:rgba(255,255,255,.68); --glass-strong:rgba(255,255,255,.84);
+    --surface:rgba(247,249,250,.72); --preview:#e5e8eb; --line:rgba(30,40,48,.12);
+    --text:#1d242a; --muted:#6e7881; --faint:#9099a1; --danger:#c83f49;
+    --bubble:#fff; --bubble-me:#95ec69; --shadow:0 12px 34px rgba(45,55,62,.09);
+  }
+  * { box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; }
+  body {
+    margin:0; color:var(--text); background:var(--window);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:13px; line-height:1.45; letter-spacing:0; -webkit-font-smoothing:antialiased;
+  }
+  button, input, select { font:inherit; letter-spacing:0; }
+  button { cursor:pointer; }
+  header {
+    height:58px; padding:0 18px 0 20px; border-bottom:1px solid var(--line);
+    background:rgba(250,251,252,.62); -webkit-backdrop-filter:blur(24px) saturate(1.35);
+    backdrop-filter:blur(24px) saturate(1.35); display:flex; align-items:center;
+    justify-content:space-between; gap:16px;
+  }
+  header > span { min-width:0; font-size:15px; font-weight:650; }
+  header small { margin-left:10px; color:var(--muted); font-size:11px; font-weight:400; }
+  header button {
+    height:30px; padding:0 11px; border:1px solid var(--line); border-radius:7px;
+    color:#424b52; background:rgba(255,255,255,.55); white-space:nowrap;
+  }
+  header button:hover { background:rgba(255,255,255,.92); }
+  .wrap {
+    height:calc(100% - 58px); display:grid; grid-template-columns:350px minmax(0,1fr);
+    gap:12px; padding:12px;
+  }
+  .panel {
+    min-width:0; min-height:0; border:1px solid rgba(255,255,255,.74); border-radius:8px;
+    background:var(--glass); box-shadow:var(--shadow); -webkit-backdrop-filter:blur(28px) saturate(1.2);
+    backdrop-filter:blur(28px) saturate(1.2);
+  }
+  .col-left { padding:14px; overflow:auto; }
+  .col-right { display:flex; flex-direction:column; padding:14px; overflow:hidden; }
+  h3 { margin:0 0 7px; color:#4d565e; font-size:11px; line-height:17px; font-weight:650; }
+  .acct {
+    margin-bottom:8px; padding:9px 10px; border:1px solid var(--line); border-radius:7px;
+    color:#424b52; background:rgba(255,255,255,.46); font-size:12px;
+  }
+  .acct:hover { background:rgba(255,255,255,.78); }
+  .acct.selected { border-color:rgba(10,159,85,.34); background:var(--accent-soft); }
+  .acct .pill {
+    display:inline-block; margin-right:6px; padding:1px 6px; border-radius:5px;
+    color:#fff; background:var(--accent); font-size:10px; font-weight:650;
+  }
   input[type=text], input[type=date], select {
-    width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:13px; }
+    width:100%; height:34px; padding:0 9px; border:1px solid var(--line); border-radius:7px;
+    outline:0; color:var(--text); background:rgba(255,255,255,.64);
+  }
+  input:focus, select:focus { border-color:rgba(10,159,85,.58); box-shadow:0 0 0 3px var(--accent-soft); }
+  input[type=checkbox] { accent-color:var(--accent); }
   .search { margin-bottom:8px; }
-  .seg { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px; }
-  .seg button { padding:7px 4px; font-size:12px; background:#f7f7f7; color:#555; border:1px solid #ddd; }
-  .seg button.sel { background:#e8fbef; color:#078c49; border-color:#07c160; font-weight:600; }
-  .contacts { max-height:420px; overflow:auto; border:1px solid #eee; border-radius:8px; }
-  .contact { display:flex; justify-content:space-between; gap:8px; padding:9px 11px;
-             border-bottom:1px solid #f2f2f2; cursor:pointer; font-size:13px; }
-  .contact:hover { background:#f6f6f6; }
-  .contact.sel { background:#e8fbef; }
-  .contact .nm { font-weight:600; }
-  .contact .id { color:#999; font-size:11px; }
-  .contact .cnt { color:#07c160; font-size:12px; white-space:nowrap; }
-  .opts { margin-top:12px; font-size:13px; }
-  .opts label { display:inline-flex; align-items:center; gap:5px; margin:4px 10px 4px 0; }
-  .row { display:flex; gap:8px; margin:6px 0; align-items:center; }
-  .row label.cap { flex:0 0 64px; color:#666; font-size:12px; }
-  button { background:var(--green); color:#fff; border:none; border-radius:8px; padding:9px 16px;
-           font-size:14px; cursor:pointer; }
-  button.ghost { background:#fff; color:#07c160; border:1px solid #07c160; }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  .btns { display:flex; gap:10px; margin-top:12px; }
-  .preview { background:var(--bg); border-radius:8px; padding:10px; height:560px; overflow:auto; }
-  .datebar { text-align:center; color:#888; font-size:11px; margin:10px 0; }
-  .msg { display:flex; gap:8px; margin:8px 4px; align-items:flex-start; }
+  .seg {
+    display:grid; grid-template-columns:repeat(4,1fr); gap:2px; margin-bottom:8px;
+    padding:3px; border:1px solid rgba(40,50,58,.08); border-radius:7px; background:rgba(224,228,231,.65);
+  }
+  .seg button {
+    height:28px; padding:0 4px; border:0; border-radius:5px; color:#626c74; background:transparent; font-size:11px;
+  }
+  .seg button.sel { color:#243129; background:rgba(255,255,255,.88); box-shadow:0 1px 4px rgba(25,35,42,.10); font-weight:650; }
+  .contacts { height:154px; overflow:auto; border:1px solid var(--line); border-radius:7px; background:rgba(255,255,255,.42); }
+  .contact {
+    display:flex; justify-content:space-between; gap:8px; min-height:50px; padding:8px 10px;
+    border-bottom:1px solid rgba(35,45,52,.07); cursor:pointer;
+  }
+  .contact:last-child { border-bottom:0; }
+  .contact:hover { background:rgba(255,255,255,.64); }
+  .contact.sel { background:var(--accent-soft); box-shadow:inset 3px 0 0 var(--accent); }
+  .contact .nm { color:#30383e; font-size:12px; font-weight:600; }
+  .contact .id { color:var(--faint); font-size:10px; }
+  .contact .cnt { color:var(--accent-strong); font-size:11px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .opts { margin-top:11px; color:#424b52; font-size:12px; }
+  .opts > div:not(.row) { display:flex; flex-wrap:wrap; gap:1px 8px; }
+  .opts label { display:inline-flex; align-items:center; gap:4px; margin:3px 7px 3px 0; }
+  .row { display:flex; gap:8px; margin:5px 0; align-items:center; }
+  .row label.cap { flex:0 0 46px; color:var(--muted); font-size:11px; }
+  button {
+    min-height:34px; padding:0 14px; border:1px solid transparent; border-radius:7px;
+    color:#fff; background:var(--accent); font-weight:600;
+  }
+  button:hover { background:var(--accent-strong); }
+  button.ghost { color:#374139; border-color:var(--line); background:rgba(255,255,255,.68); }
+  button.ghost:hover { background:rgba(255,255,255,.96); }
+  button:disabled { opacity:.42; cursor:default; }
+  .btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  .preview {
+    flex:1; min-height:0; overflow:auto; padding:16px; border:1px solid rgba(30,40,48,.08);
+    border-radius:7px; background:var(--preview); box-shadow:inset 0 1px 3px rgba(35,45,52,.06);
+  }
+  .datebar { margin:11px 0; color:#7c858c; text-align:center; font-size:10px; }
+  .msg { display:flex; align-items:flex-start; gap:9px; margin:10px 4px; }
   .msg.me { flex-direction:row-reverse; }
-  .av { width:36px; height:36px; border-radius:6px; background:#bbb; flex:0 0 36px;
-        object-fit:cover; display:flex; align-items:center; justify-content:center;
-        color:#fff; font-size:14px; }
-  .body { max-width:72%; }
-  .nm2 { font-size:11px; color:#888; margin:0 2px 2px; }
-  .msg.me .nm2 { text-align:right; }
-  .timeline { display:flex; justify-content:space-between; gap:12px; align-items:baseline;
-              color:#888; margin:0 2px 3px; font-size:10px; line-height:15px; }
+  .av {
+    flex:0 0 36px; width:36px; height:36px; border-radius:6px; object-fit:cover;
+    display:flex; align-items:center; justify-content:center; color:#fff; background:#7e8991; font-size:13px;
+  }
+  .body { max-width:min(74%,620px); }
+  .timeline { display:flex; align-items:baseline; justify-content:space-between; gap:14px; margin:0 2px 3px; color:#7a848c; font-size:10px; line-height:15px; }
   .msg.me .timeline { flex-direction:row-reverse; }
   .timeline .who { min-width:0; overflow-wrap:anywhere; }
   .timeline time { flex:0 0 auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
-  .bubble { background:var(--bubble); border-radius:8px; padding:8px 11px; font-size:14px;
-            line-height:1.45; word-break:break-word; white-space:pre-wrap; position:relative; }
+  .bubble {
+    position:relative; padding:8px 11px; border:1px solid rgba(20,30,36,.06); border-radius:6px;
+    color:#22282d; background:var(--bubble); box-shadow:0 1px 2px rgba(30,40,46,.06);
+    font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word;
+  }
   .msg.me .bubble { background:var(--bubble-me); }
-  .bubble img.pic { max-width:200px; max-height:240px; border-radius:6px; display:block; }
-  .bubble .vt { color:#666; font-size:12px; margin-top:4px; border-top:1px dashed #ccc; padding-top:4px; }
-  .bubble .tag { color:#888; font-size:12px; }
-  .meta { font-size:10px; color:#aaa; margin-top:2px; }
-  .msg.me .meta { text-align:right; }
-  .del { position:absolute; top:-8px; cursor:pointer; font-size:11px; color:#fff; background:#e35;
-         border-radius:10px; padding:0 6px; line-height:16px; opacity:.0; transition:opacity .15s; }
-  .msg:hover .del { opacity:.9; }
+  .bubble img.pic { display:block; max-width:260px; max-height:320px; border-radius:5px; }
+  .bubble .vt { margin-top:5px; padding-top:5px; border-top:1px solid rgba(30,40,45,.10); color:#5f696f; font-size:11px; }
+  .bubble .tag { color:#69737a; font-size:11px; }
+  .del {
+    position:absolute; top:-9px; min-height:18px; padding:0 6px; border-radius:6px;
+    color:#fff; background:var(--danger); cursor:pointer; font-size:10px; line-height:18px;
+    opacity:0; transition:opacity .15s ease;
+  }
+  .msg:hover .del { opacity:.92; }
   .msg.me .del { left:-8px; } .msg:not(.me) .del { right:-8px; }
-  .msg.excluded { opacity:.35; }
+  .msg.excluded { opacity:.32; }
   .msg.excluded .bubble { text-decoration:line-through; }
-  .status { font-size:13px; color:#555; margin-top:8px; min-height:18px; }
-  .err { color:#c0392b; white-space:pre-wrap; }
-  .files a { display:block; margin:4px 0; color:#07c160; }
-  audio { width:200px; height:32px; }
-  .muted { color:#999; font-size:12px; }
-  .hint { font-size:11px; color:#999; margin-top:4px; }
-  .setup { display:flex; align-items:center; gap:10px; padding:10px; margin-bottom:12px;
-           background:#f7f8fa; border:1px solid #e5e7eb; border-radius:8px; }
-  .setup.ready { background:#edf9f1; border-color:#bee7ca; }
-  .setup.error { background:#fff2f2; border-color:#f2caca; }
-  .setup-copy { flex:1; min-width:0; font-size:12px; line-height:1.45; color:#555; }
-  .setup-copy b { display:block; color:#222; font-size:13px; }
-  .setup button { flex:0 0 auto; padding:8px 11px; font-size:12px; }
+  .status { min-height:17px; margin-top:7px; color:#59636b; font-size:11px; }
+  .err { color:#b8343f; white-space:pre-wrap; }
+  .files { margin-top:3px; font-size:11px; }
+  .files a { display:block; margin:3px 0; color:var(--accent-strong); }
+  audio { width:220px; height:32px; }
+  .muted { color:var(--faint); font-size:11px; }
+  .hint { margin-top:4px; color:var(--faint); font-size:10px; }
+  .setup {
+    display:flex; align-items:center; gap:9px; margin-bottom:12px; padding:9px 10px;
+    border:1px solid var(--line); border-radius:7px; background:rgba(255,255,255,.45);
+  }
+  .setup.ready { border-color:rgba(10,159,85,.24); background:rgba(231,248,238,.55); }
+  .setup.error { border-color:rgba(200,63,73,.24); background:rgba(255,238,239,.58); }
+  .setup-copy { flex:1; min-width:0; color:#626c74; font-size:10px; line-height:1.4; }
+  .setup-copy b { display:block; color:#30383e; font-size:11px; }
+  .setup button { flex:0 0 auto; min-height:29px; padding:0 9px; font-size:10px; }
+  @media (max-width:1050px) {
+    .wrap { grid-template-columns:320px minmax(0,1fr); }
+    header small { display:none; }
+    .contacts { height:140px; }
+  }
 </style>
 </head>
 <body>
-<header><span>微信聊天记录导出 <small>本地运行 · 全程只读 · 仅用于导出你自己的聊天记录</small></span>
+<header><span id="appTitle">微信聊天记录导出 <small>本地运行 · 全程只读 · 仅用于导出你自己的聊天记录</small></span>
   <button id="quitBtn" type="button" title="停止本地服务并退出应用">退出工具</button>
 </header>
 <div class="wrap">
@@ -1096,7 +1164,7 @@ PAGE = r"""<!DOCTYPE html>
   </div>
 
   <div class="panel col-right">
-    <h3>4 · 预览（点 ✕ 可排除该条，不会被导出）</h3>
+    <h3>4 · 消息预览（悬停消息可排除）</h3>
     <div id="preview" class="preview"><div class="muted" style="padding:20px">选择联系人后点击「预览 / 加载消息」。</div></div>
   </div>
 </div>
@@ -1150,8 +1218,8 @@ async function loadFeatures(){
     const j=await getJSON("/api/features"), voice=$("voice");
     if(j.demo_mode){
       const badge=document.createElement("span"); badge.textContent="演示数据";
-      badge.style.cssText="font-size:11px;border:1px solid rgba(255,255,255,.75);padding:3px 7px;margin-left:10px;border-radius:4px";
-      document.querySelector("header span").appendChild(badge);
+      badge.style.cssText="font-size:10px;color:#087b43;background:rgba(10,159,85,.10);padding:2px 6px;margin-left:8px;border-radius:5px";
+      $("appTitle").appendChild(badge);
       $("keySetupBtn").disabled=true;
       $("keySetupBtn").title="演示模式不会访问微信进程或本机数据库。";
     }
@@ -1194,8 +1262,8 @@ async function loadAccounts(){
 
 function selectAccount(id, box, el){
   ACCOUNT=id;
-  [...box.children].forEach(c=>c.style.outline="");
-  if(el) el.style.outline="2px solid #07c160";
+  [...box.children].forEach(c=>c.classList.remove("selected"));
+  if(el) el.classList.add("selected");
   loadContacts($("q").value || "");
 }
 
@@ -1277,7 +1345,6 @@ function renderPreview(){
       t.textContent="["+m.kind_label+"]"+(m.text&&m.text!=="["+m.kind_label+"]"?(" "+m.text):""); bub.appendChild(t); }
     if(m.voice_text){ const v=document.createElement("div"); v.className="vt"; v.textContent="🗣 "+m.voice_text; bub.appendChild(v); }
     body.appendChild(bub);
-    const meta=document.createElement("div"); meta.className="meta"; meta.textContent="消息 ID "+m.id; body.appendChild(meta);
     row.appendChild(av); row.appendChild(body); box.appendChild(row);
   });
 }
@@ -1348,45 +1415,66 @@ def _pick_port(preferred: int = 8765) -> int:
         return s.getsockname()[1]
 
 
-def _console_app_url(url: str) -> None:
-    """Show a native alert when a frozen app cannot open the browser itself."""
-    script = ('display dialog "微信聊天记录导出已启动。\\n\\n地址：%s" '
-              'buttons {"退出", "打开浏览器"} default button "打开浏览器" '
-              'with title "微信聊天记录导出"') % url
-    result = subprocess.run(
-        ["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False
-    )
-    if "打开浏览器" in result.stdout:
-        subprocess.run(["/usr/bin/open", url], check=False)
+class _LocalServer(threading.Thread):
+    """Run Flask behind a controllable local-only Werkzeug server."""
+
+    def __init__(self, port: int) -> None:
+        super().__init__(name="wechat-exporter-local-server", daemon=True)
+        self.server = make_server("127.0.0.1", port, app, threaded=True)
+
+    def run(self) -> None:
+        self.server.serve_forever()
+
+    def stop(self) -> None:
+        self.server.shutdown()
+
+
+def _run_native_window(url: str) -> bool:
+    """Open a Cocoa/WKWebView desktop window; return False if unavailable."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        import webview
+        window = webview.create_window(
+            "微信聊天记录导出",
+            url=url,
+            width=1280,
+            height=820,
+            min_size=(980, 680),
+            resizable=True,
+            background_color="#e9edf1",
+            text_select=True,
+            zoomable=False,
+            vibrancy=True,
+        )
+        if window is None:
+            return False
+        webview.start(gui="cocoa", debug=False, private_mode=True)
+        return True
+    except Exception:
+        traceback.print_exc()
+        return False
 
 
 def main() -> None:
     port = _pick_port(8765)
     url = "http://127.0.0.1:%d" % port
     print("=" * 60)
-    print(" 微信聊天记录导出 · 本地图形界面")
-    print(" 打开:  " + url)
+    print(" 微信聊天记录导出 · 独立应用窗口")
+    print(" 内部服务:  " + url)
     print(" 全程只读 · 仅监听本机 · 仅用于导出你自己的聊天记录")
     print(" 按 Ctrl+C 退出")
     print("=" * 60)
 
-    # Open the browser shortly after the server starts listening. A small native
-    # dialog keeps the packaged .app visible even if the default browser launch
-    # is delayed or blocked.
-    def _open():
-        time.sleep(1.0)
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
-        if getattr(sys, "frozen", False):
-            _console_app_url(url)
-    threading.Thread(target=_open, daemon=True).start()
-
-    # Threaded so media/preview requests don't block each other. Reloader off so
-    # the browser-open thread and module globals behave deterministically.
-    app.run(host="127.0.0.1", port=port, threaded=True,
-            debug=False, use_reloader=False)
+    server = _LocalServer(port)
+    server.start()
+    try:
+        if _run_native_window(url):
+            return
+        webbrowser.open(url)
+        server.join()
+    finally:
+        server.stop()
 
 
 if __name__ == "__main__":

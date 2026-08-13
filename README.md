@@ -84,6 +84,9 @@ python3.12 -m venv .venv
 .venv/bin/python app.py
 ```
 
+macOS 会使用 Cocoa `WKWebView` 打开独立应用窗口；缺少原生窗口依赖的平台会回退到仅监听
+`127.0.0.1` 的本机浏览器界面。
+
 需要离线语音转文字时，改装 `requirements-voice.txt`。Whisper 模型会在首次使用时单独
 下载，因此标准 `.app` 不捆绑该功能的模型运行时。
 
