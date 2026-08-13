@@ -22,3 +22,6 @@ All notable changes to this project are documented here.
 - Add ordered A4 PNG/PDF page footers (`page X of Y`) and page-counted filenames.
 - Generate JSON/TXT archive manifests with a SHA-256 message chain and hashes for
   every exported artifact, with explicit legal-admissibility limitations.
+- Show a complete local date and second-level time on every message, while
+  preserving ISO 8601, UTC-offset, and Unix timestamps for machine verification.
+- Fix A4 page breaks so a message timestamp can never be drawn on the previous page.

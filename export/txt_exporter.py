@@ -59,7 +59,7 @@ def export_txt(bundle: ExportBundle, out_path: str) -> str:
             current_date = msg.date_key
             lines.append("===== " + current_date + " =====")
         prefix = "[#{0:06d} {1}] {2}: ".format(
-            sequence, msg.time_str, bundle.sender_name(msg)
+            sequence, msg.full_time_str, bundle.sender_name(msg)
         )
         lines.append(prefix + _body(msg))
 

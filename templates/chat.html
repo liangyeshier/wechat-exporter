@@ -98,7 +98,17 @@
   .avatar img { width: 100%; height: 100%; object-fit: cover; }
   .col { min-width: 0; max-width: min(72%, 500px); display: flex; flex-direction: column; align-items: flex-start; }
   .msg.out .col { align-items: flex-end; }
-  .sender { max-width: 100%; margin: -2px 1px 4px; color: #777; font-size: 11px; overflow-wrap: anywhere; }
+  .message-head {
+    width: 100%; min-height: 18px; margin: -2px 1px 4px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    color: #777; font-size: 11px; line-height: 16px;
+  }
+  .msg.out .message-head { flex-direction: row-reverse; }
+  .sender { min-width: 0; overflow-wrap: anywhere; }
+  .timeline-time {
+    flex: 0 0 auto; color: #8e8e8e; white-space: nowrap;
+    font-size: 10.5px; font-variant-numeric: tabular-nums;
+  }
 
   .bubble {
     position: relative; min-height: 38px; padding: 8px 11px; border-radius: 4px;
@@ -178,6 +188,10 @@
     .chat { padding-left: 12px; padding-right: 12px; }
     .avatar { flex-basis: 36px; width: 36px; height: 36px; }
     .col { max-width: 76%; }
+    .message-head { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+    .msg.out .message-head { direction: rtl; }
+    .msg.out .message-head > * { direction: ltr; }
+    .timeline-time { font-size: 9.5px; }
   }
   @media print {
     .topbar { position: static; background: #f7f7f7; backdrop-filter: none; }
@@ -239,13 +253,16 @@
     <div class="date-sep"><span>{{ group.date }}</span></div>
     {% for m in group.messages %}
       {% if m.kind in ("system", "recall") %}
-        <div class="notice msg-item" data-search="{{ (m.display_text ~ ' ' ~ m.kind_label ~ ' ' ~ m.sequence) | lower }}"><span>{{ m.display_text or m.kind_label }} · #{{ '%06d'|format(m.sequence) }}</span></div>
+        <div class="notice msg-item" data-search="{{ (m.display_text ~ ' ' ~ m.kind_label ~ ' ' ~ m.full_time_str ~ ' ' ~ m.sequence) | lower }}"><span>{{ m.display_text or m.kind_label }} · <time datetime="{{ m.iso_time_str }}">{{ m.full_time_str }}</time> · #{{ '%06d'|format(m.sequence) }}</span></div>
       {% else %}
         {% if m.show_time_marker %}<div class="time-sep"><span>{{ m.time_str[:5] }}</span></div>{% endif %}
         <article class="msg msg-item {{ 'out' if m.is_sender else 'in' }}" data-sequence="{{ m.sequence }}" data-search="{{ (m.sender_name ~ ' ' ~ m.display_text ~ ' ' ~ m.voice_text ~ ' ' ~ m.kind_label ~ ' ' ~ m.sequence) | lower }}">
           <div class="avatar{% if m.avatar_token %} av-{{ m.avatar_token }}{% endif %}" title="{{ m.sender_name }}"{% if not m.avatar_token %} style="background:{{ m.avatar_color }}"{% endif %}>{% if m.avatar_token %}{% elif m.avatar_img %}<img src="{{ m.avatar_img }}" alt="{{ m.sender_name }}" loading="lazy">{% else %}{{ m.avatar_text }}{% endif %}</div>
           <div class="col">
-            {% if contact.is_group and not m.is_sender %}<div class="sender">{{ m.sender_name }}</div>{% endif %}
+            <div class="message-head">
+              <span class="sender">{% if contact.is_group and not m.is_sender %}{{ m.sender_name }}{% elif m.is_sender %}{{ owner.display_name }}{% else %}{{ contact.display_name }}{% endif %}</span>
+              <time class="timeline-time" datetime="{{ m.iso_time_str }}" title="ISO 8601：{{ m.iso_time_str }}">{{ m.full_time_str }}</time>
+            </div>
 
             {% if m.kind in ("image", "sticker") %}
               <div class="bubble media{% if m.kind == 'sticker' %} sticker{% endif %}">
@@ -271,7 +288,7 @@
             {% else %}
               <div class="bubble card-bubble"><div class="card-main"><div class="card-copy"><div class="card-title">{{ m.extra.title or m.extra.poiname or m.extra.nickname or m.display_text or m.kind_label }}</div>{% if m.extra.desc or m.extra.label or m.extra.url %}<div class="card-desc">{{ m.extra.desc or m.extra.label or m.extra.url }}</div>{% endif %}</div><div class="card-mark">{{ (m.extra.fileext or m.kind_label)[:6] }}</div></div><div class="card-foot">{{ m.kind_label }}</div></div>
             {% endif %}
-            <div class="message-meta">#{{ '%06d'|format(m.sequence) }} · {{ m.time_str }}</div>
+            <div class="message-meta">消息 #{{ '%06d'|format(m.sequence) }}</div>
           </div>
         </article>
       {% endif %}

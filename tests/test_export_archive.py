@@ -140,6 +140,12 @@ def main() -> None:
         assert open(pdf_path, "rb").read(5) == b"%PDF-"
 
         html = open(html_path, encoding="utf-8").read()
+        time_tags = re.findall(r'<time[^>]+datetime="([^"]+)"[^>]*>([^<]+)</time>', html)
+        assert len(time_tags) == 110, len(time_tags)
+        assert all(re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}", iso)
+                   for iso, _ in time_tags)
+        assert all(re.fullmatch(r"\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}:\d{2}", visible)
+                   for _, visible in time_tags)
         for value in (
             "项目资料群（演示）", "产品归档讨论组（演示）", "demo_archive_group",
             "design_archive@chatroom", "沈知夏（演示）", "demo_owner",
@@ -152,6 +158,7 @@ def main() -> None:
         assert "会话微信号: demo_archive_group" in txt
         assert "导出账号微信号: demo_owner" in txt
         assert "[#000110 " in txt
+        assert re.search(r"\[#000001 \d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}:\d{2}\]", txt)
 
         with open(csv_path, encoding="utf-8-sig", newline="") as fh:
             rows = list(csv.DictReader(fh))
@@ -160,6 +167,9 @@ def main() -> None:
         assert rows[-1]["消息序号"] == "110"
         assert rows[0]["会话内部标识"] == "design_archive@chatroom"
         assert rows[0]["导出账号微信号"] == "demo_owner"
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", rows[0]["完整本地时间"])
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}", rows[0]["ISO8601时间"])
+        assert re.fullmatch(r"[+-]\d{2}:\d{2}", rows[0]["UTC偏移"])
 
         json_path, guide_path = manifest_paths
         manifest = json.load(open(json_path, encoding="utf-8"))
@@ -168,6 +178,8 @@ def main() -> None:
         assert len(manifest["message_records"]) == 110
         assert manifest["message_records"][0]["sequence"] == 1
         assert manifest["message_records"][-1]["sequence"] == 110
+        assert all(row["timestamp_iso8601"] and row["timezone_utc_offset"]
+                   for row in manifest["message_records"])
         assert len(manifest["message_chain_head_sha256"]) == 64
         file_map = {item["path"]: item for item in manifest["files"]}
         for artifact in [html_path, txt_path, csv_path, pdf_path] + png_paths:

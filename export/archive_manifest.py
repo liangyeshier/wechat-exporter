@@ -62,6 +62,9 @@ def _message_payload(bundle: ExportBundle, msg: Message, sequence: int) -> Dict[
         "local_id": msg.local_id,
         "server_id": msg.server_id or "",
         "timestamp_unix": int(msg.timestamp),
+        "timestamp_local": msg.datetime_str,
+        "timestamp_iso8601": msg.iso_time_str,
+        "timezone_utc_offset": msg.timezone_offset_str,
         "message_type": int(msg.msg_type),
         "message_subtype": int(msg.sub_type),
         "status": int(msg.status),
@@ -90,6 +93,9 @@ def message_hash_chain(bundle: ExportBundle) -> Tuple[List[Dict[str, Any]], str]
             "local_id": msg.local_id,
             "server_id": msg.server_id or "",
             "timestamp_unix": int(msg.timestamp),
+            "timestamp_local": msg.datetime_str,
+            "timestamp_iso8601": msg.iso_time_str,
+            "timezone_utc_offset": msg.timezone_offset_str,
             "message_type": int(msg.msg_type),
             "message_subtype": int(msg.sub_type),
             "raw_content_sha256": payload["raw_content_sha256"],
@@ -114,6 +120,8 @@ def archive_metadata(bundle: ExportBundle) -> Dict[str, Any]:
         "message_count": len(bundle.messages),
         "first_timestamp_unix": int(bundle.messages[0].timestamp) if bundle.messages else None,
         "last_timestamp_unix": int(bundle.messages[-1].timestamp) if bundle.messages else None,
+        "first_timestamp_iso8601": bundle.messages[0].iso_time_str if bundle.messages else None,
+        "last_timestamp_iso8601": bundle.messages[-1].iso_time_str if bundle.messages else None,
     }
     archive_seed = {
         "schema": SCHEMA_VERSION,

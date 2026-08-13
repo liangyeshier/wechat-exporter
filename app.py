@@ -100,7 +100,7 @@ _DEMO_CONTACTS = [
 
 
 def _demo_messages() -> List[Dict]:
-    return [
+    rows = [
         {"id": 1, "is_sender": False, "sender_name": "林小满", "text": "周六上午十点集合，可以吗？",
          "kind": "text", "kind_label": "文本", "voice_text": "", "voice_seconds": None,
          "time_str": "09:18:12", "date_key": "2026-08-08", "avatar_url": None,
@@ -118,6 +118,17 @@ def _demo_messages() -> List[Dict]:
          "time_str": "09:22:10", "date_key": "2026-08-08", "avatar_url": None,
          "image_url": None, "voice_url": None},
     ]
+    for row in rows:
+        date_key = row["date_key"]
+        time_str = row["time_str"]
+        year, month, day = (int(part) for part in date_key.split("-"))
+        row.update({
+            "full_time_str": f"{year}年{month}月{day}日 {time_str}",
+            "datetime_str": date_key + " " + time_str,
+            "iso_time_str": date_key + "T" + time_str + "+08:00",
+            "timezone_offset_str": "+08:00",
+        })
+    return rows
 
 app = Flask(__name__)
 
@@ -361,6 +372,10 @@ def _build_preview_rows(sess: Session, bundle: ExportBundle,
             "is_sender": bool(m.is_sender),
             "sender_name": bundle.sender_name(m),
             "time_str": m.time_str,
+            "full_time_str": m.full_time_str,
+            "datetime_str": m.datetime_str,
+            "iso_time_str": m.iso_time_str,
+            "timezone_offset_str": m.timezone_offset_str,
             "date_key": m.date_key,
             "kind": m.kind,
             "kind_label": m.kind_label,
@@ -993,6 +1008,11 @@ PAGE = r"""<!DOCTYPE html>
   .body { max-width:72%; }
   .nm2 { font-size:11px; color:#888; margin:0 2px 2px; }
   .msg.me .nm2 { text-align:right; }
+  .timeline { display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+              color:#888; margin:0 2px 3px; font-size:10px; line-height:15px; }
+  .msg.me .timeline { flex-direction:row-reverse; }
+  .timeline .who { min-width:0; overflow-wrap:anywhere; }
+  .timeline time { flex:0 0 auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .bubble { background:var(--bubble); border-radius:8px; padding:8px 11px; font-size:14px;
             line-height:1.45; word-break:break-word; white-space:pre-wrap; position:relative; }
   .msg.me .bubble { background:var(--bubble-me); }
@@ -1241,7 +1261,10 @@ function renderPreview(){
     else { av=document.createElement("div"); av.className="av"; av.textContent=(m.sender_name||"?").slice(0,1); }
     // body
     const body=document.createElement("div"); body.className="body";
-    if(!m.is_sender){ const nm=document.createElement("div"); nm.className="nm2"; nm.textContent=m.sender_name; body.appendChild(nm); }
+    const timeline=document.createElement("div"); timeline.className="timeline";
+    const who=document.createElement("span"); who.className="who"; who.textContent=m.sender_name||"未知发送者";
+    const tm=document.createElement("time"); tm.dateTime=m.iso_time_str||""; tm.textContent=m.full_time_str||(m.date_key+" "+m.time_str);
+    timeline.appendChild(who); timeline.appendChild(tm); body.appendChild(timeline);
     const bub=document.createElement("div"); bub.className="bubble";
     const del=document.createElement("span"); del.className="del"; del.textContent="✕ 删除";
     del.onclick=(e)=>{ e.stopPropagation(); if(EXCLUDED.has(m.id))EXCLUDED.delete(m.id); else EXCLUDED.add(m.id); renderPreview(); };
@@ -1254,7 +1277,7 @@ function renderPreview(){
       t.textContent="["+m.kind_label+"]"+(m.text&&m.text!=="["+m.kind_label+"]"?(" "+m.text):""); bub.appendChild(t); }
     if(m.voice_text){ const v=document.createElement("div"); v.className="vt"; v.textContent="🗣 "+m.voice_text; bub.appendChild(v); }
     body.appendChild(bub);
-    const meta=document.createElement("div"); meta.className="meta"; meta.textContent=m.time_str; body.appendChild(meta);
+    const meta=document.createElement("div"); meta.className="meta"; meta.textContent="消息 ID "+m.id; body.appendChild(meta);
     row.appendChild(av); row.appendChild(body); box.appendChild(row);
   });
 }

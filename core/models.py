@@ -112,6 +112,27 @@ class Message:
         return self.dt.strftime("%H:%M:%S")
 
     @property
+    def full_time_str(self) -> str:
+        """Complete local timestamp for human-readable exports."""
+        dt = self.dt
+        return f"{dt.year}年{dt.month}月{dt.day}日 {dt:%H:%M:%S}"
+
+    @property
+    def datetime_str(self) -> str:
+        """Sortable complete local timestamp without locale-dependent text."""
+        return self.dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def iso_time_str(self) -> str:
+        """ISO 8601 timestamp including the local UTC offset."""
+        return self.dt.isoformat(timespec="seconds")
+
+    @property
+    def timezone_offset_str(self) -> str:
+        raw = self.dt.strftime("%z")
+        return raw[:3] + ":" + raw[3:] if len(raw) == 5 else raw
+
+    @property
     def kind_label(self) -> str:
         return constants.KIND_LABELS.get(self.kind, self.kind)
 

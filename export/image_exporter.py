@@ -494,6 +494,7 @@ def _draw_date_pill(pg: _Pager, date_key: str) -> None:
     block = pill_h + lay.msg_gap * 2
 
     pg.ensure(block)
+    draw = pg.draw
     cx = lay.page_w // 2
     x0 = cx - pill_w // 2
     y0 = pg.y + lay.msg_gap
@@ -511,6 +512,7 @@ def _draw_centered_line(pg: _Pager, text: str) -> None:
     lh = lay.small_lh(draw)
     block = lh * len(lines) + lay.msg_gap
     pg.ensure(block)
+    draw = pg.draw
     pg.y += lay.msg_gap // 2 or 1
     cx = lay.page_w // 2
     for ln in lines:
@@ -701,6 +703,7 @@ def _draw_message(pg: _Pager, msg: models.Message,
     block_h = max(lay.avatar, name_h + bub_h) + time_h + lay.msg_gap
 
     pg.ensure(block_h)
+    draw = pg.draw
 
     top = pg.y + lay.msg_gap // 2
     av_x = lay.margin if not is_out else (lay.page_w - lay.margin - lay.avatar)
@@ -726,7 +729,7 @@ def _draw_message(pg: _Pager, msg: models.Message,
     _render_bubble(pg, msg, bundle, plan, bx, by, inner_w, inner_h, is_out)
 
     # timestamp under the bubble, aligned to the bubble's outer edge
-    ts = "#{0:06d} · {1}".format(sequence, msg.time_str)
+    ts = "#{0:06d} · {1}".format(sequence, msg.full_time_str)
     tw, _ = _text_size(draw, ts, lay.f_small)
     ty = by + bub_h + 1
     if is_out:
@@ -765,8 +768,10 @@ def render_pages(bundle: models.ExportBundle, dpi: int = 150,
                 last_date = dk
             if msg.kind in ("system", "recall"):
                 _draw_centered_line(
-                    pg, "{0}  ·  #{1:06d}".format(
-                        msg.display_text or msg.kind_label, sequence
+                    pg, "{0}  ·  {1}  ·  #{2:06d}".format(
+                        msg.display_text or msg.kind_label,
+                        msg.full_time_str,
+                        sequence,
                     )
                 )
             else:
