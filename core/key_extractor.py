@@ -19,13 +19,10 @@ macOS permission / re-sign caveats (READ THIS if extraction fails)
 ------------------------------------------------------------------
 * WeChat must be RUNNING and logged in (the key only exists in memory).
 * macOS hardened-runtime blocks ``task_for_pid`` against the shipped, Apple-
-  signed WeChat binary even as root. You must ad-hoc re-sign the app once::
-
-      sudo codesign --force --deep --sign - /Applications/WeChat.app
-
-  then RELAUNCH WeChat and run this tool with ``sudo``.
-* On the very newest builds you may additionally need to disable SIP
-  (``csrutil disable`` from Recovery) for ``task_for_pid`` to succeed.
+  signed WeChat binary even as root. The packaged application therefore uses
+  :mod:`core.macos_key_setup`, which signs a user-directory COPY and captures
+  the modern 32-byte PBKDF passphrase with LLDB. It never modifies the original
+  app and does not require SIP to be disabled.
 * ``frida`` (the optional secondary backend) generally CANNOT attach to the
   hardened WeChat either, which is why the memscan backend is preferred here.
 
@@ -236,12 +233,9 @@ def _task_for_pid_error(rc: int, pid: int) -> KeyExtractionError:
     """Build the actionable error raised when ``task_for_pid`` is denied."""
     return KeyExtractionError(
         f"无法读取微信进程内存 (task_for_pid 失败, pid={pid}, kern_return={rc})。\n"
-        "macOS 的强化运行时默认禁止读取微信进程内存，即使用 root 也不行。请按以下步骤操作：\n"
-        "  1) 对微信做一次自签名(只需一次)：\n"
-        "       sudo codesign --force --deep --sign - /Applications/WeChat.app\n"
-        "  2) 重新启动微信并登录(密钥只存在于运行中的进程内存里)。\n"
-        "  3) 用 sudo 重新运行本工具。\n"
-        "  4) 若仍失败(最新版本)，可能需要在恢复模式下关闭 SIP：csrutil disable。\n"
+        "macOS 的强化运行时默认禁止读取原始微信进程内存。\n"
+        "请在图形界面顶部点击“首次设置”，工具会创建并签名用户目录中的微信副本，\n"
+        "通过系统 LLDB 提取当前版本所需的密钥；不会修改原始微信，也不需要关闭 SIP。\n"
         "本工具仅用于导出你自己的微信记录，且对微信数据只读。"
     )
 
@@ -651,12 +645,9 @@ def extract_via_frida(pid: int) -> Dict[str, str]:
 _REMEDIATION = (
     "无法获取微信数据库密钥。请逐项检查：\n"
     "  1) 微信必须正在运行并已登录(密钥只存在于运行进程的内存中)。\n"
-    "  2) 已对微信自签名(只需一次)：\n"
-    "       sudo codesign --force --deep --sign - /Applications/WeChat.app\n"
-    "     之后重新启动微信。\n"
-    "  3) 用 sudo 运行本工具(读取进程内存需要特权)。\n"
-    "  4) 若仍失败(最新版本)，可能需要关闭 SIP：在恢复模式执行 csrutil disable。\n"
-    "  5) 也可手动提供密钥：--method manual --key <64位十六进制 或 keys.json 路径>。\n"
+    "  2) 图形界面用户请点击页面顶部“首次设置”，不要修改原始 WeChat.app。\n"
+    "  3) 确认已安装 Xcode Command Line Tools，并给本应用完全磁盘访问权限。\n"
+    "  4) 命令行用户也可手动提供：--method manual --key <64位十六进制 或 keys.json 路径>。\n"
     "本工具仅用于导出你自己的微信聊天记录，且对微信数据保持只读。"
 )
 

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-local/
 venv/
 .pytest_cache/
 
@@ -11,13 +12,25 @@ venv/
 
 # Build/scratch scaffolding
 .build/
+build/
+dist/
+*.spec
 
 # Any local exports or decrypted material that lands inside the repo by mistake.
 # (Real runtime data lives in ~/.wechat_exporter/ — keys, decrypted DBs, voice
 #  cache — which is OUTSIDE this repo. Never commit keys or decrypted data.)
 *.decrypted.db
+*.db
+*.db-wal
+*.db-shm
 微信导出_*
 keys.json
+wechat-passphrase.json
+*.pem
+
+# Local release artifacts and copied WeChat bundles. Never publish these.
+release/
+WeChat-Readable.app/
 
 # 原始未打码截图（含真实 wxid），仅本地保留，勿提交
 1.png

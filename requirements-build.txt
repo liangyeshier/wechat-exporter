@@ -1,0 +1,2 @@
+-r requirements-app.txt
+pyinstaller>=6.15,<7

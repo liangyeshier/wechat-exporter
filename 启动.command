@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  微信聊天记录导出 —— 一键安装并启动（macOS）
-#  双击本文件即可：自动装依赖 →（首次）签名+提取密钥 → 打开图形界面。
+#  源码版启动器：自动装依赖 → 打开图形界面。首次密钥设置在页面内完成。
 #  以后再双击就直接打开。全程只读你本机的微信数据，仅在本机运行。
 # ============================================================
 cd "$(dirname "$0")" || exit 1
@@ -61,39 +61,7 @@ else
 fi
 VP="$(find_vp)"   # 重新确认
 
-# ---- 3) 首次：签名 + 提取密钥（只需一次；需管理员密码 + 微信在运行）----
-KEYS="$HOME/.wechat_exporter/keys.json"
-if [ ! -f "$KEYS" ]; then
-  echo
-  echo "—— 首次使用：提取微信数据库密钥（仅这一次）——"
-  echo "请先确认：① 微信已打开并登录；② 打开了一个【有图片】的聊天，并往上滚动让图片显示出来。"
-  read -r -p "准备好后按回车（接下来会要求输入这台 Mac 的开机密码）…" _
-  echo "• 给微信做一次性签名（需要管理员密码）…"
-  sudo codesign --force --deep --sign - /Applications/WeChat.app \
-    && echo "✓ 签名完成" || echo "! 签名这步报错，仍会尝试继续。"
-  echo "• 请【完全退出微信 (⌘Q)】再重新打开并登录。"
-  read -r -p "微信重开好后按回车，开始提取密钥…" _
-  # 用一个「sudo 能执行」的 Python 跑独立提取脚本（脚本只用标准库，无需 venv）。
-  # .venv/bin/python 在某些机器上 sudo 跑不了(符号链接/家目录权限)，所以这里改用
-  # 其解析后的「基础」Python / 系统 Python。
-  REALPY="$("$VP" -c 'import os,sys; print(os.path.realpath(sys.executable))' 2>/dev/null)"
-  PYABS="$(command -v "$PY" 2>/dev/null)"
-  for cand in "$REALPY" "$PYABS" "/usr/bin/python3" "$VP"; do
-    [ -n "$cand" ] && [ -x "$cand" ] || continue
-    "$cand" -c "import ctypes" >/dev/null 2>&1 || continue   # 确认该 Python 能跑
-    echo "• 用 $cand 提取密钥…"
-    sudo "$cand" "$APPDIR/extract_keys.py" && break
-  done
-  if [ ! -f "$KEYS" ]; then
-    echo
-    echo "✗ 还没提取到密钥。常见原因：签名后微信没【退出重开】/ 没打开过有图片的聊天。"
-    echo "  解决：退出微信→重新打开→滚动看几张图片→再次双击本文件重试。"
-    read -r -p "按回车关闭…" _; exit 1
-  fi
-  echo "✓ 密钥已提取并缓存（以后不用再做这步）"
-fi
-
-# ---- 4) 打开图形界面 ----
+# ---- 3) 打开图形界面 ----
 echo "• 正在打开界面（浏览器会自动弹出）…"
 echo "  用完想退出：回到本窗口按 Ctrl+C，或直接关闭本窗口。"
 echo "============================================================"

@@ -1,149 +1,126 @@
-# 微信聊天记录导出工具（macOS）
+# 微信聊天记录导出工具
 
-> 在自己的 Mac 上，把**你本人**微信的聊天记录一键导出成网页 / PDF / 可打印图片 / 表格。
-> 全程**本地、离线、只读** —— 不联网、不上传、不改动微信任何文件。
+在本机选择好友或群聊，按日期预览并导出本人 macOS 微信聊天记录。应用只监听
+`127.0.0.1`，读取微信数据库时使用只读连接，所有解密、媒体解析和导出均在本机完成。
 
-<p>
-<img alt="platform" src="https://img.shields.io/badge/platform-macOS-black">
-<img alt="python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-<img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-<img alt="WeChat" src="https://img.shields.io/badge/WeChat-v3.x%20%26%20v4.0%2B-07C160">
-</p>
+> 当前稳定目标：Apple Silicon Mac、macOS 13+、微信 4.x。Intel Mac 与微信 3.x
+> 保留代码兼容性，但发布包尚未完成实机验证。Windows 版本正在规划中，当前 macOS
+> 发布包不能用于 Windows。
 
-<p align="center">
-  <img alt="图形界面" src="docs/screenshot.png" width="860">
-  <br>
-  <sub>图形界面：选账号 → 挑联系人 → 按时间范围 →（可 ✕ 删除）→ 勾选格式 → 导出（图中昵称已打码）</sub>
-</p>
+![图形界面](docs/screenshot.png)
 
----
+## 功能
 
-## ✨ 为什么用它
+- 按好友、群聊、公众号筛选，并通过昵称、备注、微信号搜索
+- 预览聊天记录，按开始/结束日期筛选，逐条排除不需要的消息
+- 导出 HTML、TXT、CSV、PDF 和 A4 PNG
+- 解析文本、图片、语音、视频、转账、红包、引用、位置、链接卡片等常见消息
+- HTML 可内嵌媒体为单文件；语音转文字可通过源码版的可选依赖启用
+- 多账号与微信 4.1+ 每数据库独立密钥支持
 
-- **真双击即用，不碰终端。** 下载后双击 `启动.command`：自动装依赖 → 给微信签名一次 → 提取密钥 → 打开图形界面。以后再双击直接开。
-- **真实还原，不是占位符。** 真实图片、真实头像、真实语音（可转文字）、视频、转账金额与状态、`[捂脸]` 这类表情码渲染成真 emoji。
-- **自包含单文件 HTML。** 导出的网页把图片 / 头像 / 语音 / 视频全部内嵌进**一个文件**，发给别人也能直接打开。
-- **能打印。** PDF 与 A4 图片排版，`紧凑`密度每页塞更多内容、打印页数最少。
-- **可视化挑选。** 界面里选联系人、按时间范围、`✕` 删除不想要的消息，再导出。
-- **多格式一次搞定。** HTML · PDF · A4 图片(PNG) · CSV(Excel) · TXT。
-- **新旧微信都支持。** 自动识别 v3.x 与 v4.0+（含 zstd 压缩、每库独立密钥），无需手动指定版本。
-- **隐私优先。** 语音转文字、图片解码全部在**本机离线**完成；微信数据只读，绝不回写。
+## 下载与启动
 
----
+从 GitHub Releases 下载 `WeChatExporter-macOS-arm64.zip`，解压后打开
+`微信聊天记录导出.app`。
 
-## 🚀 快速开始
+由于社区构建目前没有 Apple Developer ID 公证，macOS 第一次可能阻止启动。请在 Finder
+中右键应用选择“打开”，再确认一次。不要从来历不明的镜像下载本工具。
 
-> 仅支持 **macOS**，且只能导出**你自己**登录在这台 Mac 上的微信。
+首次启动后：
 
-1. **下载本项目**（绿色 `Code` → `Download ZIP`，解压；或 `git clone`）。
-2. **双击 `启动.command`。** 首次会自动：
-   - 安装依赖（首次需联网，几分钟）；
-   - 提示给微信做一次性签名（要输入开机密码）→ 退出并重开微信 → 提取密钥；
-   - 自动弹出浏览器界面。
-   > 首次提取密钥前，请先**打开并登录微信**，随便点开一个**有图片**的聊天往上滚动，让图片加载出来。
-3. **在界面里导出：** 选联系人 → 「加载消息」→（可 `✕` 删除）→ 勾选格式 → 「导出」。文件默认存到**桌面**。
+1. 给应用开启“完全磁盘访问权限”，然后重新启动应用。
+2. 点击页面顶部“首次设置”。工具会退出当前微信，复制一份微信到
+   `~/Library/Application Support/WeChatExporter/WeChat-Readable.app`。
+3. 工具只对该副本做临时签名，并通过 macOS 自带 LLDB 捕获当前账号的数据库密钥；
+   `/Applications/WeChat.app` 原件不会被修改，也不需要关闭 SIP。
+4. 微信副本打开后保持登录。设置成功时，页面会自动刷新好友和群聊列表。
+5. 选择聊天、日期和格式，加载预览后导出。文件默认写入桌面。
 
-> 双击没反应？右键 `启动.command` →「打开」→ 在弹窗里再点「打开」（macOS 首次会拦截未签名脚本）。
-
-### 换一台 Mac 用
-把整个文件夹拷过去（`.venv` 可以不拷），双击 `启动.command` 即可——它会在新机器上自动重建环境、重新签名、提取该机器的密钥。
-
----
-
-## 📦 导出格式
-
-| 格式 | 用途 |
-|---|---|
-| **HTML**（推荐） | 还原微信气泡，**自包含单文件**，转发即可打开 |
-| **PDF / A4 图片** | 用于**打印**，A4 排版，紧凑密度省纸 |
-| **CSV** | 表格，Excel 可直接打开（`utf-8-sig` 带 BOM，中文不乱码） |
-| **TXT** | 纯文本 |
-
-支持的消息类型：文本、图片、语音（可转写为文字）、视频、转账（显示**金额 + 状态**）、红包、表情、引用、位置、链接卡片等。
-
----
-
-## 🔒 隐私与安全
-
-- **仅限本人账号、本机本地数据。** 只导出你本人登录在这台 Mac 上的微信，不连接任何远程账号、不读取他人设备。
-- **全程只读。** 把数据库**复制**到 `~/.wechat_exporter/decrypted/` 后再解密处理，**绝不回写或修改**微信文件。
-- **完全离线。** 语音转写（faster-whisper）、图片解码全在本机 CPU 运行，**不上传任何音频 / 文本 / 图片**。
-- 运行产生的中间数据在 `~/.wechat_exporter/`（`keys.json` 密钥、`decrypted/` 明文副本、`voice_cache/`），含敏感信息，请妥善保管或用后清理。**这些都在仓库之外，永远不会被提交。**
-
----
-
-## ⚙️ 工作原理（简述）
-
-```
-locator        发现账号、检测 v3/v4 版本 → Layout（路径 / PRAGMA / schema）
-   ↓
-key_extractor  从运行中的微信进程内存扫描出 SQLCipher 密钥（纯 Python，mach_vm）
-   ↓
-decryptor      复制 DB → 按 v3/v4 对应 PRAGMA 用 SQLCipher 解密为明文副本
-   ↓
-reader/parser  读取联系人与会话表，解析各类消息、定位媒体文件
-   ↓
-media          头像 / 语音(SILK→WAV) / 图片(.dat→JPEG, 含 wxgf/HEVC) / 视频
-   ↓
-exporters      渲染为 HTML / PDF / A4 图片 / CSV / TXT
-```
-
-- 密钥只存在于**运行中的微信进程内存**里，磁盘上没有；提取需微信在线 + 对 `WeChat.app` 一次性签名 + 管理员权限。这步由 `启动.command` 自动完成。
-- 媒体 `.dat` 解码为尽力而为（best-effort），极少数附件可能定位不到。
-- 微信常改目录结构与加密参数，新版可能需要适配。
-
----
-
-## ⚠️ 合法与免责声明（请务必阅读）
-
-> 本项目仅供**个人备份自己的微信聊天记录**之用，与**腾讯 / 微信无关**，未获其授权或背书。
->
-> - 请**仅在你拥有合法权利的数据**上使用；导出内容常含第三方隐私，**请勿未经同意传播或滥用**。
-> - 提取密钥、解密本地数据库等操作**可能违反微信 / 腾讯的用户协议**，是否使用及由此产生的一切风险（包括账号风险）**由你自行评估并承担**。
-> - 软件按「现状（AS-IS）」提供，**不作任何明示或暗示担保**，使用造成的后果由你自负。
-
----
-
-## 🛠️ 命令行（进阶，可不看）
-
-图形界面背后是一套完整的 CLI，可脚本化：
+首次设置依赖 Xcode Command Line Tools。如果系统没有安装，请先运行：
 
 ```bash
-.venv/bin/python main.py --help                       # 全部参数
-sudo .venv/bin/python main.py                          # 交互式
-.venv/bin/python main.py --contact 张三 --format all --voice --self-contained --yes
+xcode-select --install
 ```
 
-常用参数：`--account <id片段>`、`--key <hex>`（手动传密钥，跳过提取）、`--voice`、`--format html|csv|txt|pdf|a4|all`、`--start/--end <YYYY-MM-DD>`、`--a4-density compact|normal`。
+微信升级或切换账号后，如果旧密钥失效，点击“更新密钥”重新执行即可。
 
----
+## 隐私与本机文件
 
-## 📁 目录结构
+本工具不含遥测、账号登录接口或云端服务。运行时会在本机创建：
 
+| 路径 | 内容 | 敏感性 |
+|---|---|---|
+| `~/.wechat_exporter/keys.json` | 每个数据库的本机解密密钥 | 高 |
+| `~/.wechat_exporter/decrypted/` | 只读源数据库的明文副本 | 高 |
+| `~/.wechat_exporter/voice_cache/` | 可选语音转写缓存 | 高 |
+| `~/Library/Application Support/WeChatExporter/` | 临时签名的微信副本 | 中 |
+
+这些路径均在 Git 仓库之外，不会自动上传。导出完成后如不再使用，可以关闭应用并删除
+上述目录；删除后下次使用需要重新完成首次设置。导出的聊天内容可能包含第三方个人信息，
+请仅在有权处理的范围内保存和分享。
+
+## 从源码运行
+
+建议 Python 3.11 或 3.12：
+
+```bash
+git clone https://github.com/liangyeshier/wechat-exporter.git
+cd wechat-exporter
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-app.txt
+.venv/bin/python app.py
 ```
-wechat-exporter/
-├── 启动.command          # ★ 双击它：一键装依赖 + 签名 + 提取密钥 + 打开界面
-├── 使用说明.md           # 给使用者看的简短中文说明
-├── app.py                # 图形界面入口（本地网页版 Flask）
-├── main.py               # 命令行入口
-├── extract_keys.py       # 独立密钥提取脚本（仅标准库，供 sudo 调用）
-├── core/                 # 核心：定位 / 提密钥 / 解密 / 读取 / 解析 / 媒体
-├── export/               # 各格式导出器（html / csv / txt / image+pdf）
-├── templates/            # HTML 导出模板（chat.html）
-└── tests/                # 端到端测试（合成加密库验证）
+
+需要离线语音转文字时，改装 `requirements-voice.txt`。Whisper 模型会在首次使用时单独
+下载，因此标准 `.app` 不捆绑该功能的模型运行时。
+
+命令行入口：
+
+```bash
+.venv/bin/python main.py --help
+.venv/bin/python main.py --contact "联系人名称" --format html --yes
 ```
 
----
+## 构建 macOS 应用
 
-## 🐍 环境要求
+```bash
+PYTHON_BIN=python3.12 ./scripts/build_macos_app.sh
+./scripts/package_macos_release.sh
+```
 
-- macOS（Apple Silicon 或 Intel）
-- Python 3.11 / 3.12（建议 `brew install python@3.12`；`启动.command` 会自动查找可用的 Python）
+产物位于 `dist/微信聊天记录导出.app` 和
+`dist/WeChatExporter-macOS-arm64.zip`。当前脚本执行临时签名，适合本机测试和社区分发；
+正式 Developer ID 签名、公证与自动更新仍在后续路线图中。
 
-`启动.command` 会自动创建虚拟环境并安装 `requirements.txt` 里的依赖，**通常你不需要手动操作**。
+## 验证
 
----
+```bash
+python tests/test_pipeline.py
+python -m py_compile app.py main.py core/*.py export/*.py
+codesign --verify --deep --strict --verbose=2 "dist/微信聊天记录导出.app"
+```
 
-## 📄 License
+合成数据库测试不包含任何真实微信数据。发布前还应在授权的本人账号上完成联系人加载、
+消息预览和至少一种导出格式的端到端测试。
 
-[MIT](./LICENSE) © 2026
+## 已知限制
+
+- 微信并未提供官方聊天数据库导出 API，目录、结构或加密实现更新后可能需要适配。
+- 媒体定位为尽力而为，已清理、未下载或新格式附件可能无法恢复。
+- 标准 `.app` 支持语音播放，但不捆绑体积较大的语音转文字引擎。
+- 未做 Developer ID 公证，因此初次启动需要 Finder 右键“打开”。
+- Windows `.exe` 尚未发布。跨平台工作会复用解析与导出层，并单独实现 Windows 数据
+  定位、密钥获取、凭据保护和打包流程。
+
+## 安全与合法使用
+
+本项目仅用于备份你本人合法访问的本机微信数据，与腾讯或微信无关，也未获得其授权或
+背书。密钥提取和数据库解密可能受当地法律、组织政策及微信服务条款约束，使用者需自行
+确认权限和合规性。请勿绕过他人设备、账号或访问控制，也不要未经同意传播聊天内容。
+
+安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要在公开 Issue 中粘贴密钥、数据库、
+日志中的 wxid 或聊天截图。
+
+## 许可证
+
+[MIT](LICENSE)。项目包含原始作者与后续贡献者的工作；保留 Git 历史与许可证声明。

@@ -19,10 +19,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from core import models
+from core.app_paths import resource_path
 
 
 # Template directory lives next to the package root (../templates).
-TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
+TEMPLATE_DIR = resource_path("templates")
 
 # Image-ish kinds get rendered as <img>; voice gets an <audio> player.
 _IMAGE_KINDS = frozenset({"image", "sticker"})

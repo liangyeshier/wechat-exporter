@@ -1,0 +1,12 @@
+# Runtime bundled into the macOS .app. Voice playback is included; speech-to-
+# text is intentionally optional because its model runtime adds hundreds of MB.
+sqlcipher3>=0.6.2
+zstandard>=0.22
+rich>=13
+jinja2>=3
+click>=8
+flask>=3
+silk-python>=0.2.8
+pycryptodome>=3.20
+av>=11
+pillow>=10

@@ -15,8 +15,11 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -37,6 +40,7 @@ except ImportError:  # pragma: no cover
 # Reuse the existing pipeline — do NOT reimplement crypto / parsing here.
 from core import (constants, db_decryptor, db_reader, key_extractor,  # noqa: E402
                   locator, message_parser)
+from core import macos_key_setup  # noqa: E402
 from core.media import MediaResolver, silk_to_wav  # noqa: E402
 from core.models import Contact, ExportBundle, Layout, Message  # noqa: E402
 from export import csv_exporter, html_exporter, txt_exporter  # noqa: E402
@@ -58,8 +62,21 @@ _MEDIA_LOCK = threading.RLock()
 _EXPORT_FILES: Dict[str, str] = {}
 _EXPORT_LOCK = threading.RLock()
 
+# First-run key setup runs in a background thread because copying/signing WeChat
+# and waiting for its database open can take a few minutes.
+_KEY_SETUP_LOCK = threading.RLock()
+_KEY_SETUP_STATE = {
+    "state": "ready" if key_extractor.load_cached_keys() else "missing",
+    "message": "数据库密钥已就绪。" if key_extractor.load_cached_keys()
+               else "首次使用需要完成本机密钥设置。",
+}
+
 # Default output directory (sudo-safe expansion via constants.HOME).
 DEFAULT_OUT_DIR = os.path.join(constants.HOME, "Desktop")
+VOICE_TRANSCRIPTION_AVAILABLE = all(
+    importlib.util.find_spec(name) is not None
+    for name in ("faster_whisper", "numpy")
+)
 
 app = Flask(__name__)
 
@@ -181,6 +198,30 @@ def _account_info(layout: Layout) -> Dict:
         "version": layout.version,
         "message_dbs": len(layout.message_dbs),
     }
+
+
+def _set_key_setup_state(state: str, message: str) -> None:
+    with _KEY_SETUP_LOCK:
+        _KEY_SETUP_STATE["state"] = state
+        _KEY_SETUP_STATE["message"] = message
+
+
+def _run_key_setup() -> None:
+    try:
+        macos_key_setup.setup(lambda message: _set_key_setup_state("running", message))
+        # Cached sessions may have been opened with stale decrypted copies.
+        with _SESSIONS_LOCK:
+            for sess in set(_SESSIONS.values()):
+                try:
+                    sess.media.close()
+                except Exception:
+                    pass
+            _SESSIONS.clear()
+        db_decryptor.cleanup_decrypted()
+        _set_key_setup_state("ready", "设置成功。联系人、群聊和消息现在可以读取。")
+    except Exception as exc:
+        traceback.print_exc()
+        _set_key_setup_state("error", str(exc))
 
 
 # --------------------------------------------------------------------------- #
@@ -341,11 +382,42 @@ def api_accounts():
     return jsonify({"ok": True, "accounts": [_account_info(a) for a in accounts]})
 
 
+@app.route("/api/key-status")
+def api_key_status():
+    with _KEY_SETUP_LOCK:
+        state = dict(_KEY_SETUP_STATE)
+    state["ok"] = True
+    state["has_keys"] = bool(key_extractor.load_cached_keys())
+    return jsonify(state)
+
+
+@app.route("/api/features")
+def api_features():
+    return jsonify({
+        "ok": True,
+        "voice_transcription": VOICE_TRANSCRIPTION_AVAILABLE,
+    })
+
+
+@app.route("/api/key-setup", methods=["POST"])
+def api_key_setup():
+    if request.content_type != "application/json":
+        return _err("请求格式无效。", 415)
+    with _KEY_SETUP_LOCK:
+        if _KEY_SETUP_STATE["state"] == "running":
+            return jsonify({"ok": True, **_KEY_SETUP_STATE})
+        _KEY_SETUP_STATE["state"] = "running"
+        _KEY_SETUP_STATE["message"] = "正在准备首次设置…"
+    threading.Thread(target=_run_key_setup, daemon=True).start()
+    return jsonify({"ok": True, "state": "running", "message": "正在准备首次设置…"})
+
+
 @app.route("/api/contacts")
 def api_contacts():
     """List contacts (display name, wechat id, message count) for an account."""
     account_id = request.args.get("account_id", "").strip()
     keyword = request.args.get("q", "").strip().lower()
+    kind = request.args.get("kind", "all").strip().lower()
     try:
         sess = _get_session(account_id)
     except key_extractor.KeyExtractionError as e:
@@ -360,7 +432,12 @@ def api_contacts():
         version = sess.layout.version
         matched: List[Contact] = [
             c for c in sess.contacts.values()
-            if (not keyword or keyword in c.search_blob()) and sess.has_table(c)
+            if (not keyword or keyword in c.search_blob())
+            and (kind == "all"
+                 or (kind == "groups" and c.is_group)
+                 or (kind == "friends" and not c.is_group and not c.is_official)
+                 or (kind == "official" and c.is_official))
+            and sess.has_table(c)
         ]
         matched.sort(key=lambda c: c.display_name)
 
@@ -455,6 +532,8 @@ def api_export():
         return _err("缺少 username。")
     if not formats:
         return _err("请至少选择一种导出格式。")
+    if voice_flag and not VOICE_TRANSCRIPTION_AVAILABLE:
+        return _err("当前应用包未安装语音转文字引擎。语音播放不受影响；源码版可安装 requirements-voice.txt 启用。")
 
     try:
         sess = _get_session(account_id)
@@ -748,6 +827,16 @@ def download(token: str):
                                as_attachment=True)
 
 
+@app.route("/api/quit", methods=["POST"])
+def api_quit():
+    """Stop the local packaged app after the response reaches the browser."""
+    def stop() -> None:
+        time.sleep(0.35)
+        os._exit(0)
+    threading.Thread(target=stop, daemon=True).start()
+    return jsonify({"ok": True})
+
+
 @app.route("/")
 def index():
     return PAGE
@@ -767,8 +856,11 @@ PAGE = r"""<!DOCTYPE html>
   * { box-sizing: border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
          background:#f5f5f5; color:#222; }
-  header { background:var(--green); color:#fff; padding:14px 20px; font-size:18px; font-weight:600; }
+  header { background:var(--green); color:#fff; padding:12px 20px; font-size:18px; font-weight:600;
+           display:flex; align-items:center; justify-content:space-between; gap:12px; }
   header small { font-weight:400; opacity:.85; font-size:12px; margin-left:8px; }
+  header button { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.45);
+                  padding:6px 10px; font-size:12px; white-space:nowrap; }
   .wrap { display:flex; gap:14px; padding:14px; align-items:flex-start; flex-wrap:wrap; }
   .panel { background:#fff; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:14px; }
   .col-left { flex:0 0 360px; max-width:360px; }
@@ -781,6 +873,9 @@ PAGE = r"""<!DOCTYPE html>
   input[type=text], input[type=date], select {
     width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:13px; }
   .search { margin-bottom:8px; }
+  .seg { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px; }
+  .seg button { padding:7px 4px; font-size:12px; background:#f7f7f7; color:#555; border:1px solid #ddd; }
+  .seg button.sel { background:#e8fbef; color:#078c49; border-color:#07c160; font-weight:600; }
   .contacts { max-height:420px; overflow:auto; border:1px solid #eee; border-radius:8px; }
   .contact { display:flex; justify-content:space-between; gap:8px; padding:9px 11px;
              border-bottom:1px solid #f2f2f2; cursor:pointer; font-size:13px; }
@@ -828,17 +923,36 @@ PAGE = r"""<!DOCTYPE html>
   audio { width:200px; height:32px; }
   .muted { color:#999; font-size:12px; }
   .hint { font-size:11px; color:#999; margin-top:4px; }
+  .setup { display:flex; align-items:center; gap:10px; padding:10px; margin-bottom:12px;
+           background:#f7f8fa; border:1px solid #e5e7eb; border-radius:8px; }
+  .setup.ready { background:#edf9f1; border-color:#bee7ca; }
+  .setup.error { background:#fff2f2; border-color:#f2caca; }
+  .setup-copy { flex:1; min-width:0; font-size:12px; line-height:1.45; color:#555; }
+  .setup-copy b { display:block; color:#222; font-size:13px; }
+  .setup button { flex:0 0 auto; padding:8px 11px; font-size:12px; }
 </style>
 </head>
 <body>
-<header>微信聊天记录导出 <small>本地运行 · 全程只读 · 仅用于导出你自己的聊天记录</small></header>
+<header><span>微信聊天记录导出 <small>本地运行 · 全程只读 · 仅用于导出你自己的聊天记录</small></span>
+  <button id="quitBtn" type="button" title="停止本地服务并退出应用">退出工具</button>
+</header>
 <div class="wrap">
   <div class="panel col-left">
+    <div id="keySetup" class="setup">
+      <div class="setup-copy"><b>正在检查数据库密钥…</b><span>请稍候</span></div>
+      <button id="keySetupBtn" type="button" disabled>首次设置</button>
+    </div>
     <h3>1 · 账号</h3>
     <div id="accounts" class="muted">正在检测账号…</div>
 
     <h3 style="margin-top:14px">2 · 联系人</h3>
     <input id="q" class="search" type="text" placeholder="搜索昵称 / 备注 / 微信号，回车搜索">
+    <div class="seg" id="kindSeg">
+      <button type="button" data-kind="all" class="sel">全部</button>
+      <button type="button" data-kind="friends">好友</button>
+      <button type="button" data-kind="groups">群聊</button>
+      <button type="button" data-kind="official">公众号</button>
+    </div>
     <div id="contacts" class="contacts"><div class="muted" style="padding:10px">请选择账号后加载…</div></div>
     <div id="contactHint" class="hint"></div>
 
@@ -882,7 +996,9 @@ let ACCOUNT = null;       // selected account_id
 let CONTACT = null;       // selected username
 let CONTACT_NAME = "";
 let MESSAGES = [];        // loaded preview rows
+let CONTACT_KIND = "all";
 const EXCLUDED = new Set();
+let KEY_POLL = null;
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?"":s; return d.innerHTML; }
@@ -900,6 +1016,48 @@ async function postJSON(url, body){
   if(!r.ok || !j.ok) throw new Error(j.error || ("HTTP "+r.status));
   return j;
 }
+
+function renderKeyStatus(j){
+  const box=$("keySetup"), copy=box.querySelector(".setup-copy"), btn=$("keySetupBtn");
+  box.className="setup"+(j.state==="ready"?" ready":j.state==="error"?" error":"");
+  const title=j.state==="ready"?"数据库已就绪":j.state==="running"?"正在设置数据库密钥":
+              j.state==="error"?"设置没有完成":"需要首次设置";
+  copy.innerHTML="<b>"+esc(title)+"</b><span>"+esc(j.message||"")+"</span>";
+  btn.disabled=j.state==="running";
+  btn.textContent=j.state==="ready"?"更新密钥":j.state==="error"?"重试":"首次设置";
+  if(j.state==="running" && !KEY_POLL){ KEY_POLL=setInterval(loadKeyStatus, 1200); }
+  if(j.state!=="running" && KEY_POLL){ clearInterval(KEY_POLL); KEY_POLL=null; }
+  if(j.state==="ready" && ACCOUNT && !CONTACT){ loadContacts($("q").value||""); }
+}
+
+async function loadKeyStatus(){
+  try{ renderKeyStatus(await getJSON("/api/key-status")); }
+  catch(e){ renderKeyStatus({state:"error",message:e.message}); }
+}
+
+async function loadFeatures(){
+  try{
+    const j=await getJSON("/api/features"), voice=$("voice");
+    if(!j.voice_transcription){
+      voice.disabled=true;
+      voice.parentElement.title="标准应用包支持语音播放；语音转文字需使用源码版安装可选依赖。";
+      voice.parentElement.appendChild(document.createTextNode("（源码版可选）"));
+    }
+  }catch(_e){}
+}
+
+$("keySetupBtn").onclick=async()=>{
+  const ok=confirm("首次设置会退出当前微信，并自动打开一个位于用户目录的临时签名副本。原始 /Applications/WeChat.app 不会被修改。继续吗？");
+  if(!ok) return;
+  try{ renderKeyStatus(await postJSON("/api/key-setup", {})); }
+  catch(e){ renderKeyStatus({state:"error",message:e.message}); }
+};
+
+$("quitBtn").onclick=async()=>{
+  if(!confirm("确定退出微信聊天记录导出工具吗？")) return;
+  try{ await postJSON("/api/quit", {}); document.body.innerHTML="<p style='font:16px -apple-system;padding:40px'>工具已退出，可以关闭此页面。</p>"; }
+  catch(e){ setStatus(e.message, true); }
+};
 
 async function loadAccounts(){
   try{
@@ -921,14 +1079,17 @@ function selectAccount(id, box, el){
   ACCOUNT=id;
   [...box.children].forEach(c=>c.style.outline="");
   if(el) el.style.outline="2px solid #07c160";
-  loadContacts("");
+  loadContacts($("q").value || "");
 }
 
 async function loadContacts(q){
   const box=$("contacts");
+  CONTACT=null; CONTACT_NAME=""; $("loadBtn").disabled=true; $("exportBtn").disabled=true;
   box.innerHTML='<div class="muted" style="padding:10px">加载中（首次会解密数据库，请稍候）…</div>';
   try{
-    const j = await getJSON("/api/contacts?account_id="+encodeURIComponent(ACCOUNT)+"&q="+encodeURIComponent(q||""));
+    const j = await getJSON("/api/contacts?account_id="+encodeURIComponent(ACCOUNT)+
+                            "&kind="+encodeURIComponent(CONTACT_KIND)+
+                            "&q="+encodeURIComponent(q||""));
     box.innerHTML="";
     if(!j.contacts.length){ box.innerHTML='<div class="muted" style="padding:10px">没有匹配的联系人。</div>'; }
     j.contacts.forEach(c=>{
@@ -946,8 +1107,25 @@ async function loadContacts(q){
       box.appendChild(div);
     });
     $("contactHint").textContent = j.truncated ? ("仅显示前 "+j.contacts.length+" / "+j.total+" 条，输入更精确的关键词缩小范围。") : "";
-  }catch(e){ box.innerHTML='<div class="err" style="padding:10px">'+esc(e.message)+'</div>'; }
+  }catch(e){
+    const msg = e.message || "";
+    if(msg.includes("获取密钥失败")){
+      box.innerHTML='<div class="err" style="padding:10px">数据库密钥尚未就绪。请点击页面顶部的“首次设置”，完成后这里会自动刷新好友和群聊。</div>';
+      $("contactHint").textContent = "设置只处理本机数据，不会上传聊天内容。";
+    }else{
+      box.innerHTML='<div class="err" style="padding:10px">'+esc(msg)+'</div>';
+    }
+  }
 }
+
+$("kindSeg").onclick = (ev)=>{
+  const btn = ev.target.closest("button[data-kind]");
+  if(!btn) return;
+  CONTACT_KIND = btn.dataset.kind;
+  [...$("kindSeg").children].forEach(x=>x.classList.remove("sel"));
+  btn.classList.add("sel");
+  if(ACCOUNT) loadContacts($("q").value || "");
+};
 
 function fmtsSelected(){ return [...document.querySelectorAll(".fmt:checked")].map(c=>c.value); }
 
@@ -1023,6 +1201,8 @@ $("exportBtn").onclick = async ()=>{
   $("exportBtn").disabled=false;
 };
 
+loadKeyStatus();
+loadFeatures();
 loadAccounts();
 </script>
 </body>
@@ -1048,6 +1228,18 @@ def _pick_port(preferred: int = 8765) -> int:
         return s.getsockname()[1]
 
 
+def _console_app_url(url: str) -> None:
+    """Show a native alert when a frozen app cannot open the browser itself."""
+    script = ('display dialog "微信聊天记录导出已启动。\\n\\n地址：%s" '
+              'buttons {"退出", "打开浏览器"} default button "打开浏览器" '
+              'with title "微信聊天记录导出"') % url
+    result = subprocess.run(
+        ["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False
+    )
+    if "打开浏览器" in result.stdout:
+        subprocess.run(["/usr/bin/open", url], check=False)
+
+
 def main() -> None:
     port = _pick_port(8765)
     url = "http://127.0.0.1:%d" % port
@@ -1058,13 +1250,17 @@ def main() -> None:
     print(" 按 Ctrl+C 退出")
     print("=" * 60)
 
-    # Open the browser shortly after the server starts listening.
+    # Open the browser shortly after the server starts listening. A small native
+    # dialog keeps the packaged .app visible even if the default browser launch
+    # is delayed or blocked.
     def _open():
         time.sleep(1.0)
         try:
             webbrowser.open(url)
         except Exception:
             pass
+        if getattr(sys, "frozen", False):
+            _console_app_url(url)
     threading.Thread(target=_open, daemon=True).start()
 
     # Threaded so media/preview requests don't block each other. Reloader off so
