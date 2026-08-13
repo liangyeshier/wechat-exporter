@@ -14,6 +14,10 @@ contact identifiers, chat exports, or unredacted screenshots. A synthetic reprod
 preferred. Include the application version, macOS version, WeChat version, and the smallest
 redacted log needed to reproduce the issue.
 
+Repository screenshots and documentation examples must use fully synthetic demo data. Do
+not publish blurred or pixelated real screenshots: names, lengths, counts, ordering, and
+surrounding UI state can still disclose private information.
+
 ## Security properties
 
 - The web UI binds only to `127.0.0.1`.

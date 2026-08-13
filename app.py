@@ -77,6 +77,47 @@ VOICE_TRANSCRIPTION_AVAILABLE = all(
     importlib.util.find_spec(name) is not None
     for name in ("faster_whisper", "numpy")
 )
+DEMO_MODE = os.environ.get("WECHAT_EXPORTER_DEMO", "").strip() == "1"
+
+_DEMO_ACCOUNT = "wxid_demo_local_only"
+_DEMO_CONTACTS = [
+    {"username": "wxid_demo_alice", "display_name": "林小满（演示）",
+     "wechat_id": "demo_alice", "is_group": False, "is_official": False,
+     "message_count": 128},
+    {"username": "wxid_demo_bob", "display_name": "陈知行（演示）",
+     "wechat_id": "demo_bob", "is_group": False, "is_official": False,
+     "message_count": 76},
+    {"username": "design_lab@chatroom", "display_name": "产品设计讨论组（演示）",
+     "wechat_id": "design_lab@chatroom", "is_group": True, "is_official": False,
+     "message_count": 356},
+    {"username": "weekend_hike@chatroom", "display_name": "周末徒步小队（演示）",
+     "wechat_id": "weekend_hike@chatroom", "is_group": True, "is_official": False,
+     "message_count": 94},
+    {"username": "gh_demo_news", "display_name": "本地生活资讯（演示）",
+     "wechat_id": "gh_demo_news", "is_group": False, "is_official": True,
+     "message_count": 31},
+]
+
+
+def _demo_messages() -> List[Dict]:
+    return [
+        {"id": 1, "is_sender": False, "sender_name": "林小满", "text": "周六上午十点集合，可以吗？",
+         "kind": "text", "kind_label": "文本", "voice_text": "", "voice_seconds": None,
+         "time_str": "09:18:12", "date_key": "2026-08-08", "avatar_url": None,
+         "image_url": None, "voice_url": None},
+        {"id": 2, "is_sender": True, "sender_name": "我", "text": "可以，我把路线整理好发群里。",
+         "kind": "text", "kind_label": "文本", "voice_text": "", "voice_seconds": None,
+         "time_str": "09:19:03", "date_key": "2026-08-08", "avatar_url": None,
+         "image_url": None, "voice_url": None},
+        {"id": 3, "is_sender": False, "sender_name": "陈知行", "text": "记得带水，天气预报说会有点热。",
+         "kind": "text", "kind_label": "文本", "voice_text": "", "voice_seconds": None,
+         "time_str": "09:21:45", "date_key": "2026-08-08", "avatar_url": None,
+         "image_url": None, "voice_url": None},
+        {"id": 4, "is_sender": True, "sender_name": "我", "text": "收到，稍后见。",
+         "kind": "text", "kind_label": "文本", "voice_text": "", "voice_seconds": None,
+         "time_str": "09:22:10", "date_key": "2026-08-08", "avatar_url": None,
+         "image_url": None, "voice_url": None},
+    ]
 
 app = Flask(__name__)
 
@@ -373,6 +414,10 @@ def _find_contact(sess: Session, username: str) -> Optional[Contact]:
 @app.route("/api/accounts")
 def api_accounts():
     """Detected account(s): version + message-db count."""
+    if DEMO_MODE:
+        return jsonify({"ok": True, "accounts": [{
+            "account_id": _DEMO_ACCOUNT, "version": "v4-demo", "message_dbs": 3,
+        }]})
     try:
         accounts = locator.discover_accounts()
     except Exception as e:  # pragma: no cover
@@ -384,6 +429,9 @@ def api_accounts():
 
 @app.route("/api/key-status")
 def api_key_status():
+    if DEMO_MODE:
+        return jsonify({"ok": True, "has_keys": True, "state": "ready",
+                        "message": "演示模式使用完全虚构的数据。"})
     with _KEY_SETUP_LOCK:
         state = dict(_KEY_SETUP_STATE)
     state["ok"] = True
@@ -396,11 +444,14 @@ def api_features():
     return jsonify({
         "ok": True,
         "voice_transcription": VOICE_TRANSCRIPTION_AVAILABLE,
+        "demo_mode": DEMO_MODE,
     })
 
 
 @app.route("/api/key-setup", methods=["POST"])
 def api_key_setup():
+    if DEMO_MODE:
+        return _err("演示模式不会访问微信进程或本机数据库。")
     if request.content_type != "application/json":
         return _err("请求格式无效。", 415)
     with _KEY_SETUP_LOCK:
@@ -418,6 +469,17 @@ def api_contacts():
     account_id = request.args.get("account_id", "").strip()
     keyword = request.args.get("q", "").strip().lower()
     kind = request.args.get("kind", "all").strip().lower()
+    if DEMO_MODE:
+        rows = [row for row in _DEMO_CONTACTS
+                if (not keyword or keyword in (row["display_name"] + " " + row["wechat_id"]).lower())
+                and (kind == "all"
+                     or (kind == "groups" and row["is_group"])
+                     or (kind == "friends" and not row["is_group"] and not row["is_official"])
+                     or (kind == "official" and row["is_official"]))]
+        rows.sort(key=lambda row: (-row["message_count"], row["display_name"]))
+        return jsonify({"ok": True, "account": {"account_id": _DEMO_ACCOUNT,
+                        "version": "v4-demo", "message_dbs": 3}, "contacts": rows,
+                        "truncated": False, "total": len(rows)})
     try:
         sess = _get_session(account_id)
     except key_extractor.KeyExtractionError as e:
@@ -480,6 +542,15 @@ def api_preview():
     voice_flag = request.args.get("voice", "0") == "1"
     if not username:
         return _err("缺少 username。")
+    if DEMO_MODE:
+        contact = next((row for row in _DEMO_CONTACTS if row["username"] == username), None)
+        if contact is None:
+            return _err("找不到该演示联系人。", 404)
+        rows = _demo_messages()
+        return jsonify({"ok": True, "contact": {"username": username,
+                        "display_name": contact["display_name"],
+                        "is_group": contact["is_group"]}, "owner_name": "我",
+                        "count": len(rows), "messages": rows})
     try:
         sess = _get_session(account_id)
         contact = _find_contact(sess, username)
@@ -518,6 +589,8 @@ def api_preview():
 def api_export():
     """Generate the selected formats and return download links."""
     data = request.get_json(silent=True) or {}
+    if DEMO_MODE:
+        return _err("演示模式不会写出文件，请在正常模式中导出本人数据。")
     account_id = (data.get("account_id") or "").strip()
     username = (data.get("username") or "").strip()
     start = (data.get("start") or "").strip()
@@ -1038,6 +1111,13 @@ async function loadKeyStatus(){
 async function loadFeatures(){
   try{
     const j=await getJSON("/api/features"), voice=$("voice");
+    if(j.demo_mode){
+      const badge=document.createElement("span"); badge.textContent="演示数据";
+      badge.style.cssText="font-size:11px;border:1px solid rgba(255,255,255,.75);padding:3px 7px;margin-left:10px;border-radius:4px";
+      document.querySelector("header span").appendChild(badge);
+      $("keySetupBtn").disabled=true;
+      $("keySetupBtn").title="演示模式不会访问微信进程或本机数据库。";
+    }
     if(!j.voice_transcription){
       voice.disabled=true;
       voice.parentElement.title="标准应用包支持语音播放；语音转文字需使用源码版安装可选依赖。";

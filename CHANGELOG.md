@@ -10,3 +10,8 @@ All notable changes to this project are documented here.
 - Add key status, update, progress, and application exit controls.
 - Verify real local account discovery, group listing, message preview, and TXT/CSV export.
 - Add privacy guidance, security reporting, release scripts, and sensitive-artifact exclusions.
+
+## Unreleased
+
+- Replace the partially blurred real-data screenshot with a fully synthetic demo screenshot.
+- Add a comprehensive Chinese disclaimer and stricter documentation privacy guidance.
