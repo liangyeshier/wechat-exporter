@@ -92,6 +92,9 @@ PYTHON_BIN=python3.12 ./scripts/build_macos_app.sh
 `dist/WeChatExporter-macOS-arm64.zip`。当前脚本执行临时签名，适合本机测试和社区分发；
 正式 Developer ID 签名、公证与自动更新仍在后续路线图中。
 
+GitHub Actions 自动构建尚未启用；当前 Release 来自上述本机构建脚本，并附带 SHA-256
+校验文件。启用自动构建前仍需在维护账号上授予工作流写入权限并完成一次独立验证。
+
 ## 验证
 
 ```bash
